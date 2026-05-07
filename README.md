@@ -1,12 +1,12 @@
 # se490-template
-
+Welcome to SE490. Please use this template to setup and orgnaize your project. 
 
 
 ## Getting started
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+* Add the instructor (kvaniea) to the project
+* Fill in the abstract.md file with an abstract describing the project's main goals. 
+* Fill in the team.md file with the teams University IDs, one ID per line.
 
 ## Add your files
 
