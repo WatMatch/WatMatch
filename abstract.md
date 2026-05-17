@@ -1,1 +1,20 @@
-Replace this text with your abstract. 
+# Creating Canada's Largest Capstone Ecosystem
+
+Project category: Consultant (for the University of Waterloo)
+Team name: WatMatch
+
+## Abstract
+
+Today's cross-faculty capstone matching still depends on large PDFs built from faculty surveys and manual coordination. This makes it hard for students to search for capstones, find teammates outside their own program, and see options beyond their own program. It also gives instructors extra work: they need to track teams, proposals, approvals, and changes across email, forms, and manage informal conversations. We learnt about these pain points during a meeting with our team's mentor, [Dr. Derek Rayside](https://uwaterloo.ca/electrical-computer-engineering/profile/drayside) (drayside@uwaterloo.ca).
+
+WatMatch aims to make this entire process easier to manage. Our goal is to build a capstone matching system where students can create teams, invite teammates, submit capstone ideas, browse approved capstones, and express interest in teams that are still looking for members. Instructors will be able to review capstone submissions, approve or reject ideas, request changes, manage teams in their course, and step in when a team needs help.
+
+For [SE 390 MP3](https://git.uwaterloo.ca/secapstone/se2027-390/-/tree/main/mini-project3/SSSAD?ref_type=heads), we built the first bare-bones version of the student flow with an instructor of the same course. Students could log in, create a team, create one capstone proposal, and submit it to an instructor for review. We also set up the early data model for users, courses, teams, team memberships, and capstones. This gives us a base with one working flow, along with the defined data model to implement the larger system's workflows in SE 490.
+
+Our next step is to make WatMatch handle real capstone workflows more carefully. We want to give students the opportunity to form teams without deciding on a capstone yet, and extend the system to work with students and instructors from multiple courses. There are several more features we aim to implement: Students should only belong to one active team at a time. Team leaders should control invites, roster changes, and submissions. Instructors should approve capstones based on course ownership, including teams with students from more than one course. A capstone should only become public when the appropriate course's instructor review is complete. Once a team finalizes a capstone, students should not be able to change it without instructor intervention.
+
+WatMatch will also handle unhappy paths and edge cases. This includes duplicate invites, stale interest requests, students without courses, old leaders trying to act after leader reassignment, teams changing during review, and race conditions from two users acting at the same time. These cases matter because we want to prevent real students using our system from breaking it or putting it in an undefined state.
+
+By the end of SE 490 (Spring 2026), our goal is to get WatMatch into a strong rollout-ready state. The system should support the main student, instructor, and admin flows, handle important edge cases, and be stable enough to pilot for the Fall 2026 offering of SE 490 (with Dr. Rayside's approval).
+
+By the end of SE 490 (Fall 2026), our goal is to have WatMatch deployed on UWaterloo servers and used by many students and instructors enrolled in capstone courses (with Dr. Rayside's approval). Pilot users will report bugs and edge cases they find, and our team will fix them. We also plan to collect feature requests from students and instructors. By this point, WatMatch should support real capstone matching work with real students and instructors. Students should be able to form teams and find capstones with less friction, and instructors should be able to manage approvals, teams, and course workflows in one place.
