@@ -1,1 +1,5 @@
-Replace this text with a list of team members University IDs, one per line with no additional characters. 
+snviswan
+s2shaji
+a6abdulm
+d36patel
+s62patel
