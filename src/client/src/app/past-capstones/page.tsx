@@ -35,29 +35,18 @@ function PastCapstonesPageContent() {
     const [selectedCapstone, setSelectedCapstone] =
         useState<PastCapstone | null>(null);
 
-    const { pastCapstones, loading, totalPages } = usePastCapstones({
+    const { pastCapstones, loading, metadataLoading, totalPages, departments, years } = usePastCapstones({
         page,
         pageSize,
+        search,
+        department: dept,
+        year,
     });
 
-    // Filters
-    const uniqueDepartments = [
-        ...new Set(pastCapstones.flatMap((p) => p.department).filter(Boolean)),
-    ];
-    const uniqueYears = [
-        ...new Set(pastCapstones.map((p) => p.year.toString()).filter(Boolean)),
-    ];
+    const uniqueDepartments = departments;
+    const uniqueYears = years;
 
-    const filtered = pastCapstones.filter((p) => {
-        const searchMatch =
-            p.title.toLowerCase().includes(search.toLowerCase()) ||
-            p.description.toLowerCase().includes(search.toLowerCase());
-
-        const deptMatch = dept === "All" || p.department.includes(dept);
-        const yearMatch = year === "All" || p.year.toString() === year;
-
-        return searchMatch && deptMatch && yearMatch;
-    });
+    const filtered = pastCapstones;
 
     const departmentTags = selectedCapstone?.department ?? [];
 
@@ -68,11 +57,20 @@ function PastCapstonesPageContent() {
                 <Input
                     placeholder="Search past capstones..."
                     value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    onChange={(e) => {
+                        setSearch(e.target.value);
+                        setPage(1);
+                    }}
                     className="max-w-sm"
                 />
 
-                <Select onValueChange={setDept}>
+                <Select
+                    value={dept}
+                    onValueChange={(value) => {
+                        setDept(value);
+                        setPage(1);
+                    }}
+                >
                     <SelectTrigger className="w-[220px]">
                         <SelectValue placeholder="Filter by department" />
                     </SelectTrigger>
@@ -86,7 +84,13 @@ function PastCapstonesPageContent() {
                     </SelectContent>
                 </Select>
 
-                <Select onValueChange={setYear}>
+                <Select
+                    value={year}
+                    onValueChange={(value) => {
+                        setYear(value);
+                        setPage(1);
+                    }}
+                >
                     <SelectTrigger className="w-[150px]">
                         <SelectValue placeholder="Filter by year" />
                     </SelectTrigger>
@@ -103,7 +107,7 @@ function PastCapstonesPageContent() {
 
             {/* Project list */}
             <BlurredScrollView className="flex-[20]">
-                {loading ? (
+                {loading || metadataLoading ? (
                     <p className="text-center text-slate-500">
                         Loading past capstones...
                     </p>
@@ -129,7 +133,7 @@ function PastCapstonesPageContent() {
 
                                 <div className="flex-[1] flex items-center justify-between">
                                     <CardDescription className="text-xs">
-                                        {p.department.join(", ")} • {p.year}
+                                        {p.department.join(", ")} - {p.year}
                                     </CardDescription>
                                 </div>
                             </div>

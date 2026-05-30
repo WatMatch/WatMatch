@@ -770,7 +770,14 @@ begin
         v_department is null
         or exists (
           select 1
-          from regexp_split_to_table(replace(trim(both '{}' from coalesce(p.department, '')), '"', ''), ',') as department(value)
+          from jsonb_array_elements_text(
+            case
+              when jsonb_typeof(to_jsonb(p.department)) = 'array' then to_jsonb(p.department)
+              when jsonb_typeof(to_jsonb(p.department)) = 'string' then
+                to_jsonb(string_to_array(replace(trim(both '{}' from p.department::text), '"', ''), ','))
+              else '[]'::jsonb
+            end
+          ) as department(value)
           where lower(btrim(department.value)) = v_department
         )
       )
@@ -815,9 +822,13 @@ begin
   with department_values as (
     select nullif(btrim(department.value), '') as department
     from past_capstones p
-    cross join lateral regexp_split_to_table(
-      replace(trim(both '{}' from coalesce(p.department, '')), '"', ''),
-      ','
+    cross join lateral jsonb_array_elements_text(
+      case
+        when jsonb_typeof(to_jsonb(p.department)) = 'array' then to_jsonb(p.department)
+        when jsonb_typeof(to_jsonb(p.department)) = 'string' then
+          to_jsonb(string_to_array(replace(trim(both '{}' from p.department::text), '"', ''), ','))
+        else '[]'::jsonb
+      end
     ) as department(value)
   ),
   distinct_departments as (

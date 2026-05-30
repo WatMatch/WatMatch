@@ -5,6 +5,7 @@ import {
     useContext,
     useState,
     useEffect,
+    useCallback,
     ReactNode,
 } from "react";
 
@@ -30,13 +31,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsInitialized(true);
     }, []);
 
-    const login = () => setIsLoggedIn(true);
-    const logout = () => {
+    const login = useCallback(() => setIsLoggedIn(true), []);
+    const logout = useCallback(() => {
         setIsLoggedIn(false);
         // Clear tokens from localStorage
         localStorage.removeItem("accessToken");
         localStorage.removeItem("refreshToken");
-    };
+        localStorage.removeItem("userData");
+    }, []);
 
     return (
         <AuthContext.Provider

@@ -4,15 +4,23 @@ import {
     createContext,
     useContext,
     useState,
-    useEffect,
+    useCallback,
     ReactNode,
 } from "react";
 
 interface UserData {
     user_id: string;
     email: string;
-    course_fk: string;
+    course_fk: string | number | null;
     role: string;
+    course_active?: boolean | null;
+    course?: {
+        course_id: number;
+        code: string;
+        name: string;
+        term?: string | null;
+        active: boolean;
+    } | null;
 }
 
 interface UserContextType {
@@ -26,27 +34,19 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 export function UserProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<UserData | null>(null);
 
-    useEffect(() => {
-        // Restore user data from localStorage on mount
-        const storedUser = localStorage.getItem("userData");
-        if (storedUser) {
-            setUser(JSON.parse(storedUser));
-        }
-    }, []);
-
-    const setUserData = (userData: UserData | null) => {
+    const setUserData = useCallback((userData: UserData | null) => {
         setUser(userData);
         if (userData) {
             localStorage.setItem("userData", JSON.stringify(userData));
         } else {
             localStorage.removeItem("userData");
         }
-    };
+    }, []);
 
-    const clearUser = () => {
+    const clearUser = useCallback(() => {
         setUser(null);
         localStorage.removeItem("userData");
-    };
+    }, []);
 
     return (
         <UserContext.Provider value={{ user, setUser: setUserData, clearUser }}>

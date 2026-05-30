@@ -13,15 +13,16 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { userContext } from "@/contexts/UserContext";
 import { useState } from "react";
+import { buildApiUrl, readApiError } from "@/lib/api-client";
 
 export default function LoginPage() {
     const router = useRouter();
     const { login } = useAuth();
     const { setUser } = userContext();
     const [email, setEmail] = useState("");
-    const [password, setPassword] = useState("");
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
+    const [redirecting, setRedirecting] = useState(false);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -29,26 +30,19 @@ export default function LoginPage() {
         setLoading(true);
 
         try {
-            const response = await fetch(
-                "http://127.0.0.1:8000/api/v1/auth/login",
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({ email, password }),
-                }
-            );
-
-            console.log(response);
+            const response = await fetch(buildApiUrl("/api/v1/auth/login"), {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ email: email.trim().toLowerCase() }),
+            });
 
             if (!response.ok) {
-                throw new Error("Login failed");
+                throw new Error(await readApiError(response, "Login failed"));
             }
 
             const response_data = await response.json();
-
-            console.log("data", response_data);
 
             // Store tokens
             localStorage.setItem(
@@ -67,20 +61,34 @@ export default function LoginPage() {
                 email: user.email,
                 course_fk: user.course_fk,
                 role: user.role,
+                course_active: user.course_active,
+                course: user.course,
             });
 
             login();
             const normalizedRole = user.role?.toLowerCase();
             const destination =
-                normalizedRole === "instructor" ? "/dashboard" : "/discover";
-            router.push(destination);
+                normalizedRole === "instructor" || normalizedRole === "admin"
+                    ? "/dashboard"
+                    : "/discover";
+            setRedirecting(true);
+            router.replace(destination);
         } catch (err) {
-            setError("Invalid email or password");
+            setError(err instanceof Error ? err.message : "Login failed");
             console.error("Login error:", err);
+            setRedirecting(false);
         } finally {
             setLoading(false);
         }
     };
+
+    if (redirecting) {
+        return (
+            <div className="h-full bg-slate-50 flex items-center justify-center px-4">
+                <div className="text-sm text-slate-600">Opening WatMatch...</div>
+            </div>
+        );
+    }
 
     return (
         <div className="h-full bg-slate-50 flex items-center justify-center px-4">
@@ -90,7 +98,7 @@ export default function LoginPage() {
                         Login to WatMatch
                     </CardTitle>
                     <CardDescription>
-                        Enter your credentials to access your account
+                        Enter your WatMatch email to access your account
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -113,21 +121,7 @@ export default function LoginPage() {
                                 placeholder="student@uwaterloo.ca"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
-                                required
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label
-                                htmlFor="password"
-                                className="text-sm font-medium"
-                            >
-                                Password
-                            </label>
-                            <Input
-                                id="password"
-                                type="password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
+                                disabled={loading}
                                 required
                             />
                         </div>
