@@ -36,20 +36,6 @@ class AuthDataLogic:
         except Exception as e:
             raise Exception(f"Database error in get_user_by_id: {str(e)}")
 
-    def create_user(self, user_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Create a new user"""
-        try:
-            response = supabase.table(
-                self.users_table).insert(user_data).execute()
-
-            if not response.data:
-                return None
-
-            return response.data[0]
-
-        except Exception as e:
-            raise Exception(f"Database error in create_user: {str(e)}")
-
     def update_refresh_token(self, user_id: int, token_hash: Optional[str]) -> bool:
         """Update user's refresh token"""
         try:

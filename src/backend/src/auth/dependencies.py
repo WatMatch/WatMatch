@@ -2,6 +2,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from .jwt_utils import verify_access_token
 from typing import Dict, Any
+from ..config.database import supabase
 
 security = HTTPBearer()
 
@@ -27,10 +28,55 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    user_id = payload.get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token user",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user_response = (
+        supabase.table("users")
+        .select("user_id,email,role,course_fk,active")
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    user = (user_response.data or [None])[0]
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User no longer exists",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if user.get("active") is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is inactive",
+        )
+
+    course = None
+    course_active = None
+    if user.get("course_fk") is not None:
+        course_response = (
+            supabase.table("courses")
+            .select("course_id,code,name,term,active")
+            .eq("course_id", user.get("course_fk"))
+            .limit(1)
+            .execute()
+        )
+        course = (course_response.data or [None])[0]
+        course_active = bool(course.get("active")) if course else False
+
     return {
-        "user_id": payload.get("user_id"),
-        "email": payload.get("email"),
-        "role": payload.get("role")
+        "user_id": user.get("user_id"),
+        "email": user.get("email"),
+        "role": user.get("role"),
+        "course_fk": user.get("course_fk"),
+        "active": user.get("active"),
+        "course": course,
+        "course_active": course_active,
     }
 
 

@@ -113,6 +113,66 @@ class CapstonesBusinessLogic:
         except Exception:
             return None
 
+    def get_past_capstones(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        search: Optional[str] = None,
+        department: Optional[str] = None,
+        year: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get past capstones with backend-level validation and pagination metadata."""
+        try:
+            page = max(int(page or 1), 1)
+            page_size = min(max(int(page_size or 20), 1), 100)
+
+            result = self.capstones_data.get_past_capstones(
+                page=page,
+                page_size=page_size,
+                search=search,
+                department=department,
+                year=year,
+            )
+            capstones = result.get("data") or []
+            total = result.get("total", 0)
+            total_pages = result.get("total_pages")
+            if not isinstance(total_pages, int):
+                total_pages = (int(total) + page_size - 1) // page_size if page_size > 0 else 1
+
+            return {
+                "success": True,
+                "message": f"Retrieved {len(capstones)} past capstone(s)",
+                "data": capstones,
+                "page": result.get("page", page),
+                "page_size": result.get("page_size", page_size),
+                "total": total,
+                "total_pages": max(total_pages, 1),
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Business logic error: {str(e)}",
+                "data": None,
+            }
+
+    def get_past_capstone_metadata(self) -> Dict[str, Any]:
+        """Get filter metadata for the full past capstones dataset."""
+        try:
+            payload = self.capstones_data.get_past_capstone_metadata()
+            return {
+                "success": bool(payload.get("success", True)),
+                "data": payload.get(
+                    "data",
+                    {"departments": [], "years": [], "courses": []},
+                ),
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Business logic error: {str(e)}",
+                "data": {"departments": [], "years": [], "courses": []},
+            }
+
     def get_all_capstones(self, page: Optional[int] = None, page_size: Optional[int] = None) -> Dict[str, Any]:
         """Get all current capstone projects with optional pagination"""
         try:

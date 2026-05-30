@@ -3,13 +3,6 @@ from pydantic import BaseModel
 from .capstones_bl import CapstonesBusinessLogic
 from ..auth.dependencies import get_current_user
 from typing import Dict, Any, Optional
-from supabase import create_client
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
-supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
 router = APIRouter(prefix="/capstones", tags=["capstones"])
 capstones_business = CapstonesBusinessLogic()
@@ -62,61 +55,40 @@ async def create_capstone(request: CreateCapstoneRequest) -> Dict[str, Any]:
 async def get_past_capstones(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    search: Optional[str] = Query(None),
+    department: Optional[str] = Query(None),
+    year: Optional[str] = Query(None),
 ):
     try:
-        start = (page - 1) * page_size
-        end = start + page_size
+        result = capstones_business.get_past_capstones(
+            page=page,
+            page_size=page_size,
+            search=search,
+            department=department,
+            year=year,
+        )
+        if not result["success"]:
+            raise HTTPException(status_code=500, detail=result["message"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-        try:
-            res = (
-                supabase.table("past_capstones")
-                .select("*", count="exact")
-                .range(start, end)
-                .execute()
-            )
-        except TypeError:
-            res = supabase.table("past_capstones").select(
-                "*"
-            ).range(start, end).execute()
 
-        data = getattr(res, "data", None)
-        total = getattr(res, "count", None)
-
-        if total is None:
-            try:
-                count_res = supabase.table("past_capstones").select(
-                    "id", count="exact"
-                ).execute()
-                total = getattr(count_res, "count", None)
-            except Exception:
-                total = None
-
-        total_pages = None
-        if isinstance(total, int) and page_size > 0:
-            total_pages = (total + page_size - 1) // page_size
-
-        # Clean student names
-        if data:
-            for capstone in data:
-                if "students" in capstone and isinstance(capstone["students"], list):
-                    cleaned_students = []
-                    for student in capstone["students"]:
-                        if isinstance(student, str):
-                            # Remove "Team Members: " prefix and whitespace
-                            cleaned_name = student.replace("Team Members: ", "").strip()
-                            cleaned_students.append(cleaned_name)
-                        else:
-                            cleaned_students.append(student)
-                    capstone["students"] = cleaned_students
-
-        return {
-            "success": True,
-            "page": page,
-            "page_size": page_size,
-            "total": total,
-            "total_pages": total_pages,
-            "data": data,
-        }
+@router.get("/past/metadata")
+async def get_past_capstone_metadata():
+    try:
+        result = capstones_business.get_past_capstone_metadata()
+        if not result["success"]:
+            return {
+                "success": True,
+                "data": {"departments": [], "years": [], "courses": []},
+                "warning": result.get("message", "Past capstone metadata could not be loaded"),
+            }
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

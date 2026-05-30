@@ -1,63 +1,25 @@
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
-from typing import Dict, Any, Optional
+import logging
+from pydantic import BaseModel, Field
+from typing import Dict, Any
 from .auth_bl import AuthBusinessLogic
 from .dependencies import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 auth_business = AuthBusinessLogic()
-
-
-class RegisterRequest(BaseModel):
-    email: str
-    role: str = "student"
-    course_id: Optional[int] = None
+logger = logging.getLogger(__name__)
 
 
 class LoginRequest(BaseModel):
-    email: str
+    email: str = Field(..., min_length=3, max_length=320)
 
 
 class RefreshTokenRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str = Field(..., min_length=16, max_length=4096)
 
 
 class LogoutRequest(BaseModel):
-    refresh_token: str
-
-
-@router.post("/register")
-async def register(request: RegisterRequest) -> Dict[str, Any]:
-    """
-    Register a new user.
-
-    Request body:
-    - email: Valid email address
-    - role: "student" or "instructor" (default: "student")
-    - course_id: Optional course ID
-
-    Returns:
-    - success: bool
-    - message: str
-    - data: User object
-    """
-    try:
-        result = auth_business.register_user(
-            email=request.email,
-            role=request.role,
-            course_id=request.course_id
-        )
-
-        if not result["success"]:
-            raise HTTPException(status_code=400, detail=result["message"])
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error occurred: {type(e).__name__}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    refresh_token: str = Field(..., min_length=16, max_length=4096)
 
 
 @router.post("/login")
@@ -91,7 +53,7 @@ async def login(request: LoginRequest) -> Dict[str, Any]:
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error occurred: {type(e).__name__}: {str(e)}")
+        logger.exception("Auth login failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -123,7 +85,7 @@ async def refresh_tokens(request: RefreshTokenRequest) -> Dict[str, Any]:
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error occurred: {type(e).__name__}: {str(e)}")
+        logger.exception("Auth refresh failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -150,7 +112,7 @@ async def logout(request: LogoutRequest) -> Dict[str, Any]:
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error occurred: {type(e).__name__}: {str(e)}")
+        logger.exception("Auth logout failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -178,7 +140,7 @@ async def logout_all_devices(current_user: Dict[str, Any] = Depends(get_current_
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error occurred: {type(e).__name__}: {str(e)}")
+        logger.exception("Auth me lookup failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -1,4 +1,4 @@
-import { apiFetch, buildApiUrl } from "@/lib/api-client";
+import { apiFetch, buildApiUrl, readApiError } from "@/lib/api-client";
 
 export interface Capstone {
     capstone_id: string;
@@ -169,11 +169,13 @@ export async function fetchPendingCapstones(
 
 export interface PastCapstone {
     id: string;
+    past_capstone_id?: number;
     title: string;
     description: string;
     department: string[];
     year: number;
     students: string[] | null;
+    source_fk?: number | null;
     status?: string;
 }
 
@@ -188,22 +190,55 @@ export interface PastCapstoneApiResponse {
     results?: unknown[];
 }
 
+export interface PastCapstoneMetadataResponse {
+    success: boolean;
+    data: {
+        departments: string[];
+        years: string[];
+        courses: Array<{
+            course_id: number;
+            code: string;
+            name: string;
+            term?: string | null;
+        }>;
+    };
+}
+
 /**
  * Fetch past capstones with pagination
  */
 export async function fetchPastCapstones(
     page: number,
-    pageSize: number
+    pageSize: number,
+    filters?: {
+        search?: string;
+        department?: string;
+        year?: string;
+    }
 ): Promise<PastCapstoneApiResponse> {
     const url = buildApiUrl("/api/v1/capstones/past", {
         page,
         page_size: pageSize,
+        search: filters?.search || undefined,
+        department:
+            filters?.department && filters.department !== "All"
+                ? filters.department
+                : undefined,
+        year: filters?.year && filters.year !== "All" ? filters.year : undefined,
     });
 
     const response = await apiFetch(url);
     if (!response.ok) {
-        throw new Error(`Backend error: ${response.status}`);
+        throw new Error(await readApiError(response, "Failed to fetch past capstones"));
     }
 
+    return await response.json();
+}
+
+export async function fetchPastCapstoneMetadata(): Promise<PastCapstoneMetadataResponse> {
+    const response = await apiFetch(buildApiUrl("/api/v1/capstones/past/metadata"));
+    if (!response.ok) {
+        throw new Error(await readApiError(response, "Failed to fetch past capstone metadata"));
+    }
     return await response.json();
 }
