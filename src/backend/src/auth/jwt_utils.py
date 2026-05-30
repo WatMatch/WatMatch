@@ -8,10 +8,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # JWT Configuration
-SECRET_KEY = os.getenv(
-    "JWT_SECRET_KEY", "your-secret-key-change-in-production")
-REFRESH_SECRET_KEY = os.getenv(
-    "JWT_REFRESH_SECRET_KEY", "your-refresh-secret-key-change-in-production")
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+REFRESH_SECRET_KEY = os.getenv("JWT_REFRESH_SECRET_KEY")
+if not SECRET_KEY or not REFRESH_SECRET_KEY:
+    raise ValueError("JWT_SECRET_KEY and JWT_REFRESH_SECRET_KEY must be set")
+if SECRET_KEY == REFRESH_SECRET_KEY:
+    raise ValueError("JWT_SECRET_KEY and JWT_REFRESH_SECRET_KEY must be different")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 15  # Short-lived access tokens
 REFRESH_TOKEN_EXPIRE_DAYS = 7     # Longer-lived refresh tokens

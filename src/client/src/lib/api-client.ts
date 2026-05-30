@@ -19,13 +19,28 @@ const processQueue = (error: Error | null, token: string | null = null) => {
     failedQueue = [];
 };
 
+const RAW_API_BASE_URL =
+    process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
+const API_BASE_URL = RAW_API_BASE_URL.replace(/\/$/, "");
+const API_ORIGIN_URL = API_BASE_URL.replace(/\/api\/v1$/, "");
+
+const normalizeApiUrl = (base: string): string => {
+    if (base.startsWith("http")) {
+        return base;
+    }
+    if (base.startsWith("/api/v1")) {
+        return `${API_ORIGIN_URL}${base}`;
+    }
+    return `${API_BASE_URL}${base.startsWith("/") ? base : `/${base}`}`;
+};
+
 const refreshAccessToken = async (): Promise<string> => {
     const refreshToken = localStorage.getItem("refreshToken");
     if (!refreshToken) {
         throw new Error("No refresh token available");
     }
 
-    const response = await fetch("http://127.0.0.1:8000/api/v1/auth/refresh", {
+    const response = await fetch(buildApiUrl("/api/v1/auth/refresh"), {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
@@ -113,15 +128,11 @@ export const apiFetch = async (
     return response;
 };
 
-const API_BASE_URL = "http://127.0.0.1:8000";
-
 export const buildApiUrl = (
     base: string,
     params?: Record<string, string | number | boolean | undefined | null>
 ): string => {
-    const url = base.startsWith("http")
-        ? new URL(base)
-        : new URL(base, API_BASE_URL);
+    const url = new URL(normalizeApiUrl(base));
 
     if (params) {
         Object.entries(params).forEach(([key, value]) => {
@@ -132,4 +143,31 @@ export const buildApiUrl = (
     }
 
     return url.toString();
+};
+
+export const readApiError = async (
+    response: Response,
+    fallback: string
+): Promise<string> => {
+    const errorData = await response.json().catch(() => ({}));
+    if (
+        errorData &&
+        typeof errorData === "object" &&
+        "detail" in errorData
+    ) {
+        const detail = (errorData as { detail?: unknown }).detail;
+        if (typeof detail === "string" && detail.trim()) {
+            return detail;
+        }
+        if (Array.isArray(detail) && detail.length > 0) {
+            return detail
+                .map((entry) =>
+                    typeof entry === "string"
+                        ? entry
+                        : JSON.stringify(entry)
+                )
+                .join("; ");
+        }
+    }
+    return `${fallback}: ${response.status}`;
 };

@@ -1,5 +1,6 @@
 from src.config.database import supabase
 from typing import Optional, Dict, Any
+from src.workflow.rpc_utils import call_json_rpc
 
 
 class CapstonesDataLogic:
@@ -7,6 +8,19 @@ class CapstonesDataLogic:
 
     def __init__(self):
         self.table_name = "capstones"
+
+    def _past_department_values(self, value: Any) -> list[str]:
+        if isinstance(value, list):
+            candidates = value
+        elif isinstance(value, str):
+            raw = value.strip()
+            if raw.startswith("{") and raw.endswith("}"):
+                raw = raw[1:-1]
+            candidates = raw.replace('"', "").split(",")
+        else:
+            candidates = []
+
+        return [str(candidate).strip() for candidate in candidates if str(candidate).strip()]
 
     def create_capstone(self, capstone_data: Dict[str, Any]) -> Optional[Dict[Any, Any]]:
         """Create a new capstone project"""
@@ -240,3 +254,122 @@ class CapstonesDataLogic:
         except Exception as e:
             raise Exception(
                 f"Database error in get_approved_capstones: {str(e)}")
+
+    def get_past_capstones(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        search: Optional[str] = None,
+        department: Optional[str] = None,
+        year: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get past capstones with filtering and pagination applied in Postgres."""
+        try:
+            payload = call_json_rpc(
+                "watmatch_get_past_capstones",
+                {
+                    "p_page": page,
+                    "p_page_size": page_size,
+                    "p_search": search,
+                    "p_department": department,
+                    "p_year": year,
+                },
+            )
+            if payload.get("success", True):
+                return {
+                    "data": payload.get("data") or [],
+                    "total": payload.get("total", 0),
+                    "page": payload.get("page", page),
+                    "page_size": payload.get("page_size", page_size),
+                    "total_pages": payload.get("total_pages", 1),
+                }
+        except Exception:
+            pass
+
+        try:
+            response = supabase.table("past_capstones").select("*").range(0, 9999).execute()
+            rows = response.data or []
+            search_value = (search or "").strip().lower()
+            department_value = (department or "").strip().lower()
+            year_value = (year or "").strip()
+
+            if department_value == "all":
+                department_value = ""
+            if year_value.lower() == "all":
+                year_value = ""
+
+            def matches(row: Dict[str, Any]) -> bool:
+                if year_value and str(row.get("year") or "").strip() != year_value:
+                    return False
+                if search_value:
+                    haystack = f"{row.get('title') or ''} {row.get('description') or ''}".lower()
+                    if search_value not in haystack:
+                        return False
+                if department_value:
+                    departments = [
+                        entry.lower()
+                        for entry in self._past_department_values(row.get("department"))
+                    ]
+                    if department_value not in departments:
+                        return False
+                return True
+
+            filtered = [row for row in rows if matches(row)]
+            filtered.sort(
+                key=lambda row: (
+                    str(row.get("year") or ""),
+                    str(row.get("created_at") or ""),
+                    int(row.get("past_capstone_id") or 0),
+                ),
+                reverse=True,
+            )
+            start = (page - 1) * page_size
+            end = start + page_size
+            total = len(filtered)
+
+            return {
+                "data": filtered[start:end],
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": (total + page_size - 1) // page_size if page_size > 0 else 1,
+            }
+        except Exception as e:
+            raise Exception(f"Database error in get_past_capstones: {str(e)}")
+
+    def get_past_capstone_metadata(self) -> Dict[str, Any]:
+        """Get full past-capstone filter metadata from Postgres."""
+        try:
+            payload = call_json_rpc("watmatch_get_past_capstone_metadata", {})
+            if payload.get("success", True):
+                return payload or {
+                    "success": True,
+                    "data": {"departments": [], "years": [], "courses": []},
+                }
+        except Exception:
+            pass
+
+        try:
+            response = supabase.table("past_capstones").select("department,year").execute()
+            rows = response.data or []
+            departments: set[str] = set()
+            years: set[str] = set()
+
+            for row in rows:
+                for department in self._past_department_values(row.get("department")):
+                    departments.add(department)
+
+                year = row.get("year")
+                if year is not None and str(year).strip():
+                    years.add(str(year).strip())
+
+            return {
+                "success": True,
+                "data": {
+                    "departments": sorted(departments, key=str.lower),
+                    "years": sorted(years, reverse=True),
+                    "courses": [],
+                },
+            }
+        except Exception as e:
+            raise Exception(f"Database error in get_past_capstone_metadata: {str(e)}")

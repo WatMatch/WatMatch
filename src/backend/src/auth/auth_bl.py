@@ -4,9 +4,10 @@ from .jwt_utils import (
     create_refresh_token,
     verify_refresh_token
 )
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from datetime import datetime, timedelta
 import hashlib
+from src.config.database import supabase
 
 
 class AuthBusinessLogic:
@@ -15,8 +16,31 @@ class AuthBusinessLogic:
     def __init__(self):
         self.auth_data = AuthDataLogic()
 
-    def register_user(self, email: str, role: str = "student", course_id: Optional[int] = None) -> Dict[str, Any]:
-        """Register a new user"""
+    def _enrich_course(self, user: Dict[str, Any]) -> Dict[str, Any]:
+        user_response = dict(user)
+        course_fk = user_response.get("course_fk")
+        user_response["course"] = None
+        user_response["course_active"] = None
+        if course_fk is None:
+            return user_response
+
+        try:
+            course_res = (
+                supabase.table("courses")
+                .select("course_id,code,name,term,active")
+                .eq("course_id", course_fk)
+                .limit(1)
+                .execute()
+            )
+            course = (course_res.data or [None])[0]
+            user_response["course"] = course
+            user_response["course_active"] = bool(course.get("active")) if course else False
+        except Exception:
+            user_response["course_active"] = False
+        return user_response
+
+    def login(self, email: str) -> Dict[str, Any]:
+        """Authenticate user and return tokens (password validation to be implemented later)"""
         try:
             # Validate inputs
             if not email or not email.strip():
@@ -26,72 +50,19 @@ class AuthBusinessLogic:
                     "data": None
                 }
 
-            if role not in ["student", "instructor"]:
-                return {
-                    "success": False,
-                    "message": "Role must be 'student' or 'instructor'",
-                    "data": None
-                }
-
-            # Check if user already exists
-            existing_user = self.auth_data.get_user_by_email(email.lower())
-            if existing_user:
-                return {
-                    "success": False,
-                    "message": "User with this email already exists",
-                    "data": None
-                }
-
-            # Create user data (no password stored)
-            user_data = {
-                "email": email.lower(),
-                "role": role,
-                "course_fk": course_id
-            }
-
-            # Create user
-            user = self.auth_data.create_user(user_data)
-
-            if not user:
-                return {
-                    "success": False,
-                    "message": "Failed to create user",
-                    "data": None
-                }
-
-            user_response = user
-
-            return {
-                "success": True,
-                "message": "User registered successfully",
-                "data": user_response
-            }
-
-        except Exception as e:
-            return {
-                "success": False,
-                "message": f"Registration error: {str(e)}",
-                "data": None
-            }
-
-    def login(self, email: str) -> Dict[str, Any]:
-        """Authenticate user and return tokens (password validation to be implemented later)"""
-        try:
-            # Validate inputs
-            if not email:
-                return {
-                    "success": False,
-                    "message": "Email is required",
-                    "data": None
-                }
-
             # Get user
-            user = self.auth_data.get_user_by_email(email.lower())
+            user = self.auth_data.get_user_by_email(email.strip().lower())
 
             if not user:
                 return {
                     "success": False,
                     "message": "User not found",
+                    "data": None
+                }
+            if user.get("active") is False:
+                return {
+                    "success": False,
+                    "message": "User account is inactive",
                     "data": None
                 }
 
@@ -111,8 +82,9 @@ class AuthBusinessLogic:
             self.auth_data.update_refresh_token(user["user_id"], token_hash)
 
             # Remove refresh token from user data
-            user_response = {k: v for k,
-                             v in user.items() if k != "refresh_token"}
+            user_response = self._enrich_course({
+                k: v for k, v in user.items() if k != "refresh_token"
+            })
 
             return {
                 "success": True,
@@ -153,6 +125,12 @@ class AuthBusinessLogic:
                 return {
                     "success": False,
                     "message": "Refresh token not found or already used",
+                    "data": None
+                }
+            if user.get("active") is False:
+                return {
+                    "success": False,
+                    "message": "User account is inactive",
                     "data": None
                 }
 
