@@ -9,9 +9,10 @@ function DashboardContent() {
     const { user } = userContext();
     const normalizedRole = user?.role?.toLowerCase();
     const isInstructor = normalizedRole === "instructor";
+    const isAdmin = normalizedRole === "admin";
     const isStudent = normalizedRole === "student";
 
-    if (isInstructor) {
+    if (isInstructor || isAdmin) {
         return <InstructorDashboard />;
     }
 

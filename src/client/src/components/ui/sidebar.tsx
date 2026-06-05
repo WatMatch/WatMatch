@@ -108,7 +108,7 @@ export default function Sidebar() {
           ]
         : isAdmin
         ? [
-              { href: "/dashboard/admin", label: "Admin Dashboard" },
+              { href: "/dashboard", label: "Admin Dashboard" },
               { href: "/discover", label: "Discover Projects" },
               { href: "/past-capstones", label: "Previous Capstones" },
           ]
