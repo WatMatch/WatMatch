@@ -1,4 +1,4 @@
-import { apiFetch, buildApiUrl } from "@/lib/api-client";
+import { apiFetch, buildApiUrl, readApiError } from "@/lib/api-client";
 
 export interface PendingInterest {
     team_id: number;
@@ -25,12 +25,11 @@ export interface TeamInvite {
     team: {
         team_id: number;
         leader_fk: number;
-        capstone_fk: number;
+        capstone_fk: number | null;
         members: number[];
-        interested: number[];
         status: string;
         course_fk: number;
-    };
+    } | null;
     capstone: {
         capstone_id: number;
         user_fk: number;
@@ -41,11 +40,63 @@ export interface TeamInvite {
         skills: string[];
         approval: boolean;
         team_fk: number;
-    };
+    } | null;
+    acceptance_blocked_reason?: string;
 }
 
 export interface UserInvitesData {
     data: TeamInvite[];
+}
+
+export interface InstructorRosterEntry {
+    user_id: number;
+    email: string;
+    course_fk: number | null;
+    active_team_fk: number | null;
+    team: {
+        team_id: number;
+        leader_fk: number;
+        status: string;
+        capstone_fk: number | null;
+        course_fk?: number | null;
+    } | null;
+    capstone: {
+        capstone_id: number;
+        title: string;
+        status: string;
+        approval: boolean;
+        course_fk?: number | null;
+    } | null;
+}
+
+export interface AdminStudentEntry {
+    user_id: number;
+    email: string;
+    role: string;
+    course_fk: number | null;
+    active_team_fk: number | null;
+    active: boolean;
+    created_at?: string;
+    course: {
+        course_id: number;
+        code: string;
+        name: string;
+        term?: string | null;
+        active: boolean;
+    } | null;
+}
+
+export type AdminUserEntry = AdminStudentEntry;
+
+export interface UserImportSummary {
+    created: number;
+    updated: number;
+    unchanged: number;
+    errors: Array<{
+        row: number;
+        email?: string;
+        error: string;
+    }>;
 }
 
 /**
@@ -55,7 +106,7 @@ export async function fetchUserCapstone(): Promise<UserCapstoneData> {
     const response = await apiFetch(buildApiUrl("/api/v1/users/me/capstone"));
 
     if (!response.ok) {
-        throw new Error(`Failed to fetch user capstone: ${response.status}`);
+        throw new Error(await readApiError(response, "Failed to fetch user capstone"));
     }
 
     return await response.json();
@@ -68,7 +119,7 @@ export async function fetchUserInterests(): Promise<UserInterestsData> {
     const response = await apiFetch(buildApiUrl("/api/v1/users/me/interests"));
 
     if (!response.ok) {
-        throw new Error(`Failed to fetch user interests: ${response.status}`);
+        throw new Error(await readApiError(response, "Failed to fetch user interests"));
     }
 
     return await response.json();
@@ -85,7 +136,7 @@ export async function fetchUserInvites(
     );
 
     if (!response.ok) {
-        throw new Error(`Failed to fetch user invites: ${response.status}`);
+        throw new Error(await readApiError(response, "Failed to fetch user invites"));
     }
 
     const result = await response.json();
@@ -101,10 +152,160 @@ export async function fetchUserById(userId: string): Promise<unknown> {
     const response = await apiFetch(buildApiUrl(`/api/v1/users/${userId}`));
 
     if (!response.ok) {
-        throw new Error(`Backend error: ${response.status}`);
+        throw new Error(await readApiError(response, "Failed to fetch user"));
     }
 
     return await response.json();
+}
+
+export async function fetchInstructorCourseRoster(): Promise<{
+    data: InstructorRosterEntry[];
+}> {
+    const response = await apiFetch(
+        buildApiUrl("/api/v1/users/instructor/course-roster")
+    );
+    if (!response.ok) {
+        throw new Error(await readApiError(response, "Failed to fetch course roster"));
+    }
+    const payload = await response.json();
+    return { data: payload.data || [] };
+}
+
+export async function fetchAdminUsers(): Promise<AdminUserEntry[]> {
+    const pageSize = 200;
+    const users: AdminUserEntry[] = [];
+    let page = 1;
+    let totalPages = 1;
+
+    do {
+        const response = await apiFetch(
+            buildApiUrl("/api/v1/users/admin/users", {
+                page,
+                page_size: pageSize,
+            })
+        );
+        if (!response.ok) {
+            throw new Error(await readApiError(response, "Failed to fetch users"));
+        }
+        const payload = await response.json();
+        users.push(...((payload.data || []) as AdminUserEntry[]));
+        totalPages = Math.max(1, Number(payload.total_pages || 1));
+        page += 1;
+    } while (page <= totalPages);
+
+    return users;
+}
+
+export async function createAdminUser(payload: {
+    email: string;
+    role: "student" | "instructor" | "admin" | "external_partner";
+    course_id?: number | null;
+    active?: boolean;
+    reason?: string;
+}): Promise<AdminUserEntry> {
+    const response = await apiFetch(buildApiUrl("/api/v1/users/admin/users"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+        throw new Error(await readApiError(response, "Failed to create user"));
+    }
+    const result = await response.json();
+    return result.data;
+}
+
+export async function setAdminUserCourse(
+    userId: number,
+    payload: { course_id?: number | null; reason?: string }
+): Promise<AdminUserEntry> {
+    const response = await apiFetch(
+        buildApiUrl(`/api/v1/users/admin/users/${userId}/course`),
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        }
+    );
+    if (!response.ok) {
+        throw new Error(await readApiError(response, "Failed to update user course"));
+    }
+    const result = await response.json();
+    return result.data;
+}
+
+export async function setAdminUserActive(
+    userId: number,
+    payload: { active: boolean; force?: boolean; reason?: string }
+): Promise<AdminUserEntry> {
+    const response = await apiFetch(
+        buildApiUrl(`/api/v1/users/admin/users/${userId}/active`),
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        }
+    );
+    if (!response.ok) {
+        throw new Error(await readApiError(response, "Failed to update user status"));
+    }
+    const result = await response.json();
+    return result.data;
+}
+
+export async function updateAdminUser(
+    userId: number,
+    payload: {
+        email: string;
+        role: "student" | "instructor" | "admin" | "external_partner";
+        course_id?: number | null;
+        active: boolean;
+        reason?: string;
+    }
+): Promise<AdminUserEntry> {
+    const response = await apiFetch(
+        buildApiUrl(`/api/v1/users/admin/users/${userId}`),
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        }
+    );
+    if (!response.ok) {
+        throw new Error(await readApiError(response, "Failed to update user"));
+    }
+    const result = await response.json();
+    return result.data;
+}
+
+export async function deleteAdminUser(
+    userId: number,
+    reason?: string
+): Promise<void> {
+    const response = await apiFetch(
+        buildApiUrl(`/api/v1/users/admin/users/${userId}/delete`),
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ reason }),
+        }
+    );
+    if (!response.ok) {
+        throw new Error(await readApiError(response, "Failed to delete user"));
+    }
+}
+
+export async function importAdminUsersCsv(csvText: string): Promise<UserImportSummary> {
+    const response = await apiFetch(buildApiUrl("/api/v1/users/admin/users/import"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csv_text: csvText }),
+    });
+    if (!response.ok) {
+        throw new Error(await readApiError(response, "Failed to import users"));
+    }
+    const result = await response.json();
+    return result.data;
 }
 
 export interface StudentProfile {
@@ -116,22 +317,17 @@ export interface StudentProfile {
  * Fetch student profile
  */
 export async function fetchStudentProfile(): Promise<StudentProfile | null> {
-    try {
-        const response = await apiFetch(buildApiUrl("/api/v1/student-profile"));
+    const response = await apiFetch(buildApiUrl("/api/v1/student-profile"));
 
-        if (!response.ok) {
-            if (response.status === 404) {
-                return null; // Profile doesn't exist yet
-            }
-            throw new Error(`Failed to fetch profile: ${response.status}`);
+    if (!response.ok) {
+        if (response.status === 404) {
+            return null; // Profile doesn't exist yet
         }
-
-        const result = await response.json();
-        return result.data || null;
-    } catch (error) {
-        console.error("Error fetching student profile:", error);
-        return null;
+        throw new Error(await readApiError(response, "Failed to fetch profile"));
     }
+
+    const result = await response.json();
+    return result.data || null;
 }
 
 /**
@@ -140,24 +336,19 @@ export async function fetchStudentProfile(): Promise<StudentProfile | null> {
 export async function fetchStudentProfileById(
     userId: string
 ): Promise<StudentProfile | null> {
-    try {
-        const response = await apiFetch(
-            buildApiUrl(`/api/v1/student-profile/${userId}`)
-        );
+    const response = await apiFetch(
+        buildApiUrl(`/api/v1/student-profile/${userId}`)
+    );
 
-        if (!response.ok) {
-            if (response.status === 404) {
-                return null; // Profile doesn't exist yet
-            }
-            throw new Error(`Failed to fetch profile: ${response.status}`);
+    if (!response.ok) {
+        if (response.status === 404) {
+            return null; // Profile doesn't exist yet
         }
-
-        const result = await response.json();
-        return result.data || null;
-    } catch (error) {
-        console.error("Error fetching student profile:", error);
-        return null;
+        throw new Error(await readApiError(response, "Failed to fetch profile"));
     }
+
+    const result = await response.json();
+    return result.data || null;
 }
 
 /**
@@ -176,6 +367,6 @@ export async function updateStudentProfile(data: {
     });
 
     if (!response.ok) {
-        throw new Error(`Failed to update profile: ${response.status}`);
+        throw new Error(await readApiError(response, "Failed to update profile"));
     }
 }
