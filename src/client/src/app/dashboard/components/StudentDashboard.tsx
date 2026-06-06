@@ -319,7 +319,12 @@ export function StudentDashboard() {
                                         You've been invited to join these teams
                                     </p>
                                 </div>
-                                {invites.map((invite) => (
+                                {invites.map((invite) => {
+                                    const capstone = invite.capstone;
+                                    const capstoneStatus =
+                                        capstone?.status || "pending";
+
+                                    return (
                                     <Card
                                         key={invite.invite_id}
                                         className="bg-white border border-blue-200 shadow-sm hover:shadow-md transition w-full h-[240px]"
@@ -327,7 +332,7 @@ export function StudentDashboard() {
                                         <div className="flex flex-col h-full p-6">
                                             <div className="flex-[1.2] mb-2 overflow-hidden">
                                                 <CardTitle className="text-lg line-clamp-1">
-                                                    {invite.capstone.title ||
+                                                    {capstone?.title ||
                                                         `Team ${invite.team_fk}`}
                                                 </CardTitle>
                                             </div>
@@ -335,21 +340,21 @@ export function StudentDashboard() {
                                             <div className="flex-[3] overflow-hidden mb-2">
                                                 <p className="text-slate-600 text-sm line-clamp-4">
                                                     {invite.capstone
-                                                        .description ||
+                                                        ?.description ||
                                                         "No description available."}
                                                 </p>
                                                 <span
                                                     className={`inline-block mt-2 text-xs px-2 py-1 rounded font-semibold ${
-                                                        invite.capstone.status.toLowerCase() ===
+                                                        capstoneStatus.toLowerCase() ===
                                                         "approved"
                                                             ? "bg-green-100 text-green-700"
-                                                            : invite.capstone.status.toLowerCase() ===
+                                                            : capstoneStatus.toLowerCase() ===
                                                               "draft"
                                                             ? "bg-yellow-100 text-yellow-700"
                                                             : "bg-slate-100 text-slate-700"
                                                     }`}
                                                 >
-                                                    {invite.capstone.status
+                                                    {capstoneStatus
                                                         .replace(/_/g, " ")
                                                         .toUpperCase()}
                                                 </span>
@@ -403,7 +408,8 @@ export function StudentDashboard() {
                                             </div>
                                         </div>
                                     </Card>
-                                ))}
+                                    );
+                                })}
                             </>
                         )}
 
