@@ -14,12 +14,23 @@ interface UserData {
     course_fk: string | number | null;
     role: string;
     course_active?: boolean | null;
+    home_department_fk?: string | number | null;
+    home_department_id?: string | number | null;
+    home_department?: {
+        department_id: number;
+        name: string;
+        active: boolean;
+    } | null;
     course?: {
         course_id: number;
         code: string;
         name: string;
-        term?: string | null;
         active: boolean;
+        active_terms?: string[];
+        activation_mode?: "auto" | "force_active" | "force_inactive";
+        department_fk?: number | null;
+        routing_kind?: "standard" | "interdisciplinary";
+        requires_project_support?: boolean;
     } | null;
 }
 

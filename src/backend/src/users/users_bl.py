@@ -6,6 +6,13 @@ from .users_dl import UsersDataLogic
 from src.config.database import supabase
 
 
+def _required_audit_reason(reason: Optional[str]) -> str | None:
+    trimmed = reason.strip() if reason and reason.strip() else None
+    if not trimmed:
+        return None
+    return trimmed
+
+
 class UsersBusinessLogic:
     """Business layer for users operations."""
 
@@ -119,6 +126,7 @@ class UsersBusinessLogic:
         email: str,
         role: str,
         course_id: Optional[int],
+        home_department_id: Optional[int],
         active: bool,
         actor_id: int,
         reason: Optional[str] = None,
@@ -126,19 +134,26 @@ class UsersBusinessLogic:
         if not email or not email.strip():
             return {"success": False, "message": "User email is required.", "data": None}
         normalized_role = (role or "").strip().lower()
-        if normalized_role not in {"student", "instructor", "admin", "external_partner"}:
-            return {"success": False, "message": "Role must be student, instructor, admin, or external_partner.", "data": None}
+        staff_roles = {"admin", "academic_advisor", "enrollment_operator", "external_partner", "mentor"}
+        if normalized_role not in {"student", "instructor", *staff_roles}:
+            return {"success": False, "message": "Role must be student, instructor, admin, academic_advisor, enrollment_operator, external_partner, or mentor.", "data": None}
+        if normalized_role in {"student", "instructor"} and home_department_id is None:
+            return {"success": False, "message": "Home department is required for students and instructors.", "data": None}
         if not actor_id:
             return {"success": False, "message": "Invalid actor identity.", "data": None}
+        trimmed_reason = _required_audit_reason(reason)
+        if not trimmed_reason:
+            return {"success": False, "message": "An audit reason is required when creating a user.", "data": None}
 
         try:
             return self.users_data.create_user_rpc(
                 email=email.strip().lower(),
                 role=normalized_role,
-                course_id=course_id,
+                course_id=None if normalized_role in staff_roles else course_id,
+                home_department_id=None if normalized_role in staff_roles else home_department_id,
                 active=bool(active),
                 actor_id=actor_id,
-                reason=reason,
+                reason=trimmed_reason,
             )
         except Exception as e:
             return {"success": False, "message": f"Business logic error: {str(e)}", "data": None}
@@ -154,13 +169,16 @@ class UsersBusinessLogic:
             return {"success": False, "message": "Invalid user ID.", "data": None}
         if not actor_id:
             return {"success": False, "message": "Invalid actor identity.", "data": None}
+        trimmed_reason = _required_audit_reason(reason)
+        if not trimmed_reason:
+            return {"success": False, "message": "An audit reason is required when changing a user course.", "data": None}
 
         try:
             return self.users_data.set_user_course_rpc(
                 user_id=user_id,
                 course_id=course_id,
                 actor_id=actor_id,
-                reason=reason,
+                reason=trimmed_reason,
             )
         except Exception as e:
             return {"success": False, "message": f"Business logic error: {str(e)}", "data": None}
@@ -177,6 +195,9 @@ class UsersBusinessLogic:
             return {"success": False, "message": "Invalid user ID.", "data": None}
         if not actor_id:
             return {"success": False, "message": "Invalid actor identity.", "data": None}
+        trimmed_reason = _required_audit_reason(reason)
+        if not trimmed_reason:
+            return {"success": False, "message": "An audit reason is required when changing user active status.", "data": None}
 
         try:
             return self.users_data.set_user_active_rpc(
@@ -184,7 +205,7 @@ class UsersBusinessLogic:
                 active=bool(active),
                 actor_id=actor_id,
                 force=bool(force),
-                reason=reason,
+                reason=trimmed_reason,
             )
         except Exception as e:
             return {"success": False, "message": f"Business logic error: {str(e)}", "data": None}
@@ -195,6 +216,7 @@ class UsersBusinessLogic:
         email: str,
         role: str,
         course_id: Optional[int],
+        home_department_id: Optional[int],
         active: bool,
         actor_id: int,
         reason: Optional[str] = None,
@@ -204,20 +226,27 @@ class UsersBusinessLogic:
         if not email or not email.strip():
             return {"success": False, "message": "User email is required.", "data": None}
         normalized_role = (role or "").strip().lower()
-        if normalized_role not in {"student", "instructor", "admin", "external_partner"}:
-            return {"success": False, "message": "Role must be student, instructor, admin, or external_partner.", "data": None}
+        staff_roles = {"admin", "academic_advisor", "enrollment_operator", "external_partner", "mentor"}
+        if normalized_role not in {"student", "instructor", *staff_roles}:
+            return {"success": False, "message": "Role must be student, instructor, admin, academic_advisor, enrollment_operator, external_partner, or mentor.", "data": None}
+        if normalized_role in {"student", "instructor"} and home_department_id is None:
+            return {"success": False, "message": "Home department is required for students and instructors.", "data": None}
         if not actor_id:
             return {"success": False, "message": "Invalid actor identity.", "data": None}
+        trimmed_reason = _required_audit_reason(reason)
+        if not trimmed_reason:
+            return {"success": False, "message": "An audit reason is required when updating a user.", "data": None}
 
         try:
             return self.users_data.update_user_rpc(
                 user_id=user_id,
                 email=email.strip().lower(),
                 role=normalized_role,
-                course_id=None if normalized_role in {"admin", "external_partner"} else course_id,
+                course_id=None if normalized_role in staff_roles else course_id,
+                home_department_id=None if normalized_role in staff_roles else home_department_id,
                 active=bool(active),
                 actor_id=actor_id,
-                reason=reason,
+                reason=trimmed_reason,
             )
         except Exception as e:
             return {"success": False, "message": f"Business logic error: {str(e)}", "data": None}
@@ -232,12 +261,15 @@ class UsersBusinessLogic:
             return {"success": False, "message": "Invalid user ID.", "data": None}
         if not actor_id:
             return {"success": False, "message": "Invalid actor identity.", "data": None}
+        trimmed_reason = _required_audit_reason(reason)
+        if not trimmed_reason:
+            return {"success": False, "message": "An audit reason is required when deleting a user.", "data": None}
 
         try:
             return self.users_data.delete_user_rpc(
                 user_id=user_id,
                 actor_id=actor_id,
-                reason=reason,
+                reason=trimmed_reason,
             )
         except Exception as e:
             return {"success": False, "message": f"Business logic error: {str(e)}", "data": None}
@@ -271,7 +303,7 @@ class UsersBusinessLogic:
 
             courses = (
                 supabase.table("courses")
-                .select("course_id,code,term,active")
+                .select("course_id,code,active")
                 .execute()
                 .data
                 or []
@@ -285,6 +317,24 @@ class UsersBusinessLogic:
                 for alias in {raw_code, raw_code.replace(" ", "")}:
                     courses_by_code.setdefault(alias, {})[int(course_id)] = course
 
+            departments = (
+                supabase.table("departments")
+                .select("department_id,name,active")
+                .execute()
+                .data
+                or []
+            )
+            departments_by_name = {
+                str(department.get("name") or "").strip().lower(): department
+                for department in departments
+                if department.get("department_id") is not None
+            }
+            departments_by_id = {
+                int(department["department_id"]): department
+                for department in departments
+                if department.get("department_id") is not None
+            }
+
             for row_number, row in enumerate(reader, start=2):
                 normalized_row = {
                     (key or "").strip().lstrip("\ufeff").lower(): (value or "").strip()
@@ -293,13 +343,15 @@ class UsersBusinessLogic:
                 email = normalized_row.get("email", "").lower()
                 role = (normalized_row.get("role") or "student").lower()
                 course_code = (normalized_row.get("course_code") or "").upper()
-                course_term = normalized_row.get("course_term") or normalized_row.get("term")
+                department_name = normalized_row.get("home_department") or normalized_row.get("department")
+                department_id_text = normalized_row.get("home_department_id") or normalized_row.get("department_id")
                 active_text = (normalized_row.get("active") or "true").lower()
 
                 if not email:
                     summary["errors"].append({"row": row_number, "error": "Missing email."})
                     continue
-                if role not in {"student", "instructor", "admin", "external_partner"}:
+                staff_roles = {"admin", "academic_advisor", "enrollment_operator", "external_partner", "mentor"}
+                if role not in {"student", "instructor", *staff_roles}:
                     summary["errors"].append({"row": row_number, "email": email, "error": "Invalid role."})
                     continue
                 if active_text not in {"true", "false", "1", "0", "yes", "no"}:
@@ -308,6 +360,7 @@ class UsersBusinessLogic:
 
                 active = active_text in {"true", "1", "yes"}
                 course_id: Optional[int] = None
+                home_department_id: Optional[int] = None
                 if course_code and role in {"student", "instructor"}:
                     matches = list(
                         (
@@ -316,11 +369,6 @@ class UsersBusinessLogic:
                             or {}
                         ).values()
                     )
-                    if course_term:
-                        matches = [
-                            course for course in matches
-                            if str(course.get("term") or "").strip().lower() == course_term.strip().lower()
-                        ]
                     if not matches:
                         summary["errors"].append({
                             "row": row_number,
@@ -328,19 +376,50 @@ class UsersBusinessLogic:
                             "error": f"Course code {course_code} was not found.",
                         })
                         continue
-                    if len(matches) > 1:
-                        summary["errors"].append({
-                            "row": row_number,
-                            "email": email,
-                            "error": f"Course code {course_code} matches multiple terms. Add course_term.",
-                        })
-                        continue
                     course_id = int(matches[0]["course_id"])
-                elif course_code and role in {"admin", "external_partner"}:
+                elif course_code and role in staff_roles:
                     summary["errors"].append({
                         "row": row_number,
                         "email": email,
-                        "error": "Admins and external partners cannot be assigned to a course.",
+                        "error": "Admins, academic advisors, enrollment operators, external partners, and mentors cannot be assigned to a course.",
+                    })
+                    continue
+
+                if role in {"student", "instructor"}:
+                    if department_id_text:
+                        try:
+                            parsed_department_id = int(department_id_text)
+                        except ValueError:
+                            summary["errors"].append({
+                                "row": row_number,
+                                "email": email,
+                                "error": "Invalid home_department_id.",
+                            })
+                            continue
+                        department = departments_by_id.get(parsed_department_id)
+                    else:
+                        department = departments_by_name.get((department_name or "").strip().lower())
+
+                    if not department:
+                        summary["errors"].append({
+                            "row": row_number,
+                            "email": email,
+                            "error": "Home department was not found.",
+                        })
+                        continue
+                    if department.get("active") is False:
+                        summary["errors"].append({
+                            "row": row_number,
+                            "email": email,
+                            "error": "Home department is inactive.",
+                        })
+                        continue
+                    home_department_id = int(department["department_id"])
+                elif department_name or department_id_text:
+                    summary["errors"].append({
+                        "row": row_number,
+                        "email": email,
+                    "error": "Admins, academic advisors, enrollment operators, external partners, and mentors cannot be assigned a home department.",
                     })
                     continue
 
@@ -351,6 +430,7 @@ class UsersBusinessLogic:
                         email=email,
                         role=role,
                         course_id=course_id,
+                        home_department_id=home_department_id,
                         active=active,
                         actor_id=actor_id,
                         reason="csv_import",
@@ -360,6 +440,7 @@ class UsersBusinessLogic:
                         email=email,
                         role=role,
                         course_id=course_id,
+                        home_department_id=home_department_id,
                         active=active,
                         actor_id=actor_id,
                         reason="csv_import",
@@ -378,6 +459,7 @@ class UsersBusinessLogic:
                 elif (
                     existing.get("role") == role
                     and existing.get("course_fk") == course_id
+                    and existing.get("home_department_fk") == home_department_id
                     and existing.get("active") is active
                 ):
                     summary["unchanged"] += 1
@@ -396,5 +478,21 @@ class UsersBusinessLogic:
 
     def _process_user(self, user: Dict[Any, Any]) -> Dict[Any, Any]:
         enriched = dict(user)
+        enriched["home_department_id"] = enriched.get("home_department_fk")
+        enriched["home_department"] = None
+        if enriched.get("home_department_fk") is not None:
+            try:
+                department = (
+                    supabase.table("departments")
+                    .select("department_id,name,active")
+                    .eq("department_id", enriched.get("home_department_fk"))
+                    .limit(1)
+                    .execute()
+                    .data
+                    or [None]
+                )[0]
+                enriched["home_department"] = department
+            except Exception:
+                enriched["home_department"] = None
         enriched["source"] = "watmatch-server"
         return enriched

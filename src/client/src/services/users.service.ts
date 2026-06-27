@@ -1,6 +1,9 @@
 import { apiFetch, buildApiUrl, readApiError } from "@/lib/api-client";
+import type { MarketplacePhase, MarketplacePhaseContext } from "./marketplace.service";
 
 export interface PendingInterest {
+    exploration_id?: number;
+    status?: string;
     team_id: number;
     capstone_id: number;
     project_name: string;
@@ -12,6 +15,9 @@ export interface PendingInterest {
 export interface UserCapstoneData {
     teams: unknown[];
     is_leader: boolean;
+    explorations?: unknown[];
+    commitment_requests?: unknown[];
+    marketplace?: unknown;
 }
 
 export interface UserInterestsData {
@@ -36,11 +42,17 @@ export interface TeamInvite {
         title: string;
         description: string;
         status: string;
+        marketplace_phase?: MarketplacePhase;
+        marketplace_phase_context?: MarketplacePhaseContext | null;
+        can_express_interest?: boolean;
+        can_invite?: boolean;
+        can_commit?: boolean;
         disciplines: string[];
         skills: string[];
         approval: boolean;
         team_fk: number;
     } | null;
+    marketplace_phase?: MarketplacePhase;
     acceptance_blocked_reason?: string;
 }
 
@@ -52,6 +64,16 @@ export interface InstructorRosterEntry {
     user_id: number;
     email: string;
     course_fk: number | null;
+    home_department_fk?: number | null;
+    home_department_id?: number | null;
+    home_department?:
+        | string
+        | {
+              department_id?: number;
+              name?: string;
+              active?: boolean;
+          }
+        | null;
     active_team_fk: number | null;
     team: {
         team_id: number;
@@ -74,6 +96,8 @@ export interface AdminStudentEntry {
     email: string;
     role: string;
     course_fk: number | null;
+    home_department_fk?: number | null;
+    home_department_id?: number | null;
     active_team_fk: number | null;
     active: boolean;
     created_at?: string;
@@ -81,12 +105,30 @@ export interface AdminStudentEntry {
         course_id: number;
         code: string;
         name: string;
-        term?: string | null;
+        active: boolean;
+        active_terms?: string[];
+        activation_mode?: "auto" | "force_active" | "force_inactive";
+        department_fk?: number | null;
+        routing_kind?: "standard" | "interdisciplinary";
+        requires_project_support?: boolean;
+    } | null;
+    home_department?: {
+        department_id: number;
+        name: string;
         active: boolean;
     } | null;
 }
 
 export type AdminUserEntry = AdminStudentEntry;
+
+export type AdminManagedRole =
+    | "student"
+    | "instructor"
+    | "admin"
+    | "academic_advisor"
+    | "enrollment_operator"
+    | "external_partner"
+    | "mentor";
 
 export interface UserImportSummary {
     created: number;
@@ -198,10 +240,11 @@ export async function fetchAdminUsers(): Promise<AdminUserEntry[]> {
 
 export async function createAdminUser(payload: {
     email: string;
-    role: "student" | "instructor" | "admin" | "external_partner";
+    role: AdminManagedRole;
     course_id?: number | null;
+    home_department_id?: number | null;
     active?: boolean;
-    reason?: string;
+    reason: string;
 }): Promise<AdminUserEntry> {
     const response = await apiFetch(buildApiUrl("/api/v1/users/admin/users"), {
         method: "POST",
@@ -217,7 +260,7 @@ export async function createAdminUser(payload: {
 
 export async function setAdminUserCourse(
     userId: number,
-    payload: { course_id?: number | null; reason?: string }
+    payload: { course_id?: number | null; reason: string }
 ): Promise<AdminUserEntry> {
     const response = await apiFetch(
         buildApiUrl(`/api/v1/users/admin/users/${userId}/course`),
@@ -236,7 +279,7 @@ export async function setAdminUserCourse(
 
 export async function setAdminUserActive(
     userId: number,
-    payload: { active: boolean; force?: boolean; reason?: string }
+    payload: { active: boolean; force?: boolean; reason: string }
 ): Promise<AdminUserEntry> {
     const response = await apiFetch(
         buildApiUrl(`/api/v1/users/admin/users/${userId}/active`),
@@ -257,10 +300,11 @@ export async function updateAdminUser(
     userId: number,
     payload: {
         email: string;
-        role: "student" | "instructor" | "admin" | "external_partner";
+        role: AdminManagedRole;
         course_id?: number | null;
+        home_department_id?: number | null;
         active: boolean;
-        reason?: string;
+        reason: string;
     }
 ): Promise<AdminUserEntry> {
     const response = await apiFetch(
@@ -280,7 +324,7 @@ export async function updateAdminUser(
 
 export async function deleteAdminUser(
     userId: number,
-    reason?: string
+    reason: string
 ): Promise<void> {
     const response = await apiFetch(
         buildApiUrl(`/api/v1/users/admin/users/${userId}/delete`),
@@ -309,8 +353,23 @@ export async function importAdminUsersCsv(csvText: string): Promise<UserImportSu
 }
 
 export interface StudentProfile {
+    student_fk?: number;
+    headline?: string | null;
     about_me: string | null;
     skills: string[] | null;
+    preferred_roles?: string[] | null;
+    project_interests?: string[] | null;
+    interested_department_ids?: number[] | null;
+    interested_departments?: Array<{
+        department_id: number;
+        name: string;
+        active?: boolean;
+    }> | null;
+    availability?: string | null;
+    portfolio_url?: string | null;
+    linkedin_url?: string | null;
+    github_url?: string | null;
+    profile_visibility?: "team_network" | "students" | "private";
 }
 
 /**
@@ -355,8 +414,17 @@ export async function fetchStudentProfileById(
  * Update student profile (about me and skills)
  */
 export async function updateStudentProfile(data: {
+    headline?: string | null;
     about_me?: string | null;
     skills?: string[] | null;
+    preferred_roles?: string[] | null;
+    project_interests?: string[] | null;
+    interested_department_ids?: number[] | null;
+    availability?: string | null;
+    portfolio_url?: string | null;
+    linkedin_url?: string | null;
+    github_url?: string | null;
+    profile_visibility?: "team_network" | "students" | "private";
 }): Promise<void> {
     const response = await apiFetch(buildApiUrl("/api/v1/student-profile"), {
         method: "POST",

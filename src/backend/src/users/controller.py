@@ -8,6 +8,7 @@ from ..auth.dependencies import get_current_user
 from ..interests.interests_dl import InterestsDL
 from ..config.database import supabase
 from ..workflow.workflow_utils import get_team_member_ids
+from ..workflow.rpc_utils import call_json_rpc
 
 router = APIRouter(prefix="/users", tags=["users"])
 users_business = UsersBusinessLogic()
@@ -19,31 +20,33 @@ class AdminCreateUserRequest(BaseModel):
     email: str = Field(..., min_length=3, max_length=320)
     role: str = Field(default="student", max_length=32)
     course_id: Optional[int] = None
+    home_department_id: Optional[int] = None
     active: bool = True
-    reason: Optional[str] = Field(default=None, max_length=2000)
+    reason: str = Field(..., min_length=1, max_length=2000)
 
 
 class AdminSetUserCourseRequest(BaseModel):
     course_id: Optional[int] = None
-    reason: Optional[str] = Field(default=None, max_length=2000)
+    reason: str = Field(..., min_length=1, max_length=2000)
 
 
 class AdminSetUserActiveRequest(BaseModel):
     active: bool
     force: bool = False
-    reason: Optional[str] = Field(default=None, max_length=2000)
+    reason: str = Field(..., min_length=1, max_length=2000)
 
 
 class AdminUpdateUserRequest(BaseModel):
     email: str = Field(..., min_length=3, max_length=320)
     role: str = Field(..., max_length=32)
     course_id: Optional[int] = None
+    home_department_id: Optional[int] = None
     active: bool = True
-    reason: Optional[str] = Field(default=None, max_length=2000)
+    reason: str = Field(..., min_length=1, max_length=2000)
 
 
 class AdminDeleteUserRequest(BaseModel):
-    reason: Optional[str] = Field(default=None, max_length=2000)
+    reason: str = Field(..., min_length=1, max_length=2000)
 
 
 class AdminImportUsersRequest(BaseModel):
@@ -195,6 +198,23 @@ async def get_my_capstone(
 ) -> Dict[str, Any]:
     try:
         user_id = current_user["user_id"]
+        student_explorations = []
+        student_commitment_requests = []
+        marketplace_settings = None
+        if (current_user.get("role") or "").lower() == "student":
+            try:
+                marketplace_payload = call_json_rpc(
+                    "watmatch_list_student_explorations",
+                    {"p_student_id": int(user_id)},
+                )
+                student_explorations = marketplace_payload.get("data") or []
+                student_commitment_requests = marketplace_payload.get("commitment_requests") or []
+                marketplace_settings = marketplace_payload.get("marketplace")
+            except Exception:
+                student_explorations = []
+                student_commitment_requests = []
+                marketplace_settings = None
+
         membership_res = (
             supabase.table("team_memberships")
             .select("team_fk")
@@ -204,7 +224,14 @@ async def get_my_capstone(
         )
         membership = (membership_res.data or [None])[0]
         if not membership:
-            return {"success": True, "teams": [], "is_leader": False}
+            return {
+                "success": True,
+                "teams": [],
+                "is_leader": False,
+                "explorations": student_explorations,
+                "commitment_requests": student_commitment_requests,
+                "marketplace": marketplace_settings,
+            }
 
         team_id = membership.get("team_fk")
         team_res = (
@@ -216,7 +243,14 @@ async def get_my_capstone(
         )
         team = (team_res.data or [None])[0]
         if not team:
-            return {"success": True, "teams": [], "is_leader": False}
+            return {
+                "success": True,
+                "teams": [],
+                "is_leader": False,
+                "explorations": student_explorations,
+                "commitment_requests": student_commitment_requests,
+                "marketplace": marketplace_settings,
+            }
         is_leader = int(team.get("leader_fk") or 0) == int(user_id)
 
         capstone_id = team.get("capstone_fk")
@@ -231,39 +265,73 @@ async def get_my_capstone(
             )
             capstone = (capstone_res.data or [None])[0]
             if capstone:
+                marketplace_phase_context: Dict[str, Any] = {}
+                try:
+                    marketplace_phase_context = call_json_rpc(
+                        "watmatch_marketplace_phase_context_for_capstone",
+                        {"p_capstone_id": int(capstone["capstone_id"])},
+                    )
+                except Exception:
+                    marketplace_phase_context = {}
+                marketplace_phase = str(
+                    marketplace_phase_context.get("effective_phase")
+                    or (marketplace_settings or {}).get("phase")
+                    or "exploration"
+                ).lower()
+                if marketplace_phase == "locked":
+                    marketplace_phase = "finalization"
+                capstone_status = (capstone.get("status") or "").lower()
+                accepts_marketplace = (
+                    capstone.get("archived") is not True
+                    and capstone_status == "approved_recruiting"
+                )
                 project = {
                     "capstone_id": str(capstone["capstone_id"]),
                     "title": capstone.get("title"),
                     "description": capstone.get("description"),
                     "status": capstone.get("status"),
                     "course_fk": capstone.get("course_fk"),
+                    "marketplace_phase": marketplace_phase,
+                    "marketplace_phase_context": marketplace_phase_context or None,
+                    "can_express_interest": accepts_marketplace and marketplace_phase == "exploration",
+                    "can_invite": accepts_marketplace and marketplace_phase == "exploration",
+                    "can_commit": accepts_marketplace and marketplace_phase in {"exploration", "commitment"},
                 }
 
         member_rows = (
             supabase.table("team_memberships")
-            .select("user_fk")
+            .select("user_fk,is_leader,enrollment_course_fk,enrollment_routed_at,enrollment_notes")
             .eq("team_fk", team_id)
             .execute()
         ).data or []
         member_ids = [row.get("user_fk") for row in member_rows if row.get("user_fk") is not None]
+        memberships_map = {
+            row.get("user_fk"): row
+            for row in member_rows
+            if row.get("user_fk") is not None
+        }
         team_members = []
         if member_ids:
             team_members_raw = (
                 supabase.table("users")
-                .select("user_id, email, course_fk")
+                .select("user_id, email, course_fk, home_department_fk")
                 .in_("user_id", member_ids)
                 .execute()
             ).data or []
             course_ids = sorted({
-                member.get("course_fk")
+                course_id
                 for member in team_members_raw
-                if member.get("course_fk") is not None
+                for course_id in (
+                    member.get("course_fk"),
+                    memberships_map.get(member.get("user_id"), {}).get("enrollment_course_fk"),
+                )
+                if course_id is not None
             })
             courses_map = {}
             if course_ids:
                 course_rows = (
                     supabase.table("courses")
-                    .select("course_id, code, name, term")
+                    .select("course_id, code, name, active, active_terms, activation_mode, department_fk, routing_kind, ecosystem_fk")
                     .in_("course_id", course_ids)
                     .execute()
                 ).data or []
@@ -272,15 +340,43 @@ async def get_my_capstone(
                     for course in course_rows
                     if course.get("course_id") is not None
                 }
+            department_ids = sorted({
+                member.get("home_department_fk")
+                for member in team_members_raw
+                if member.get("home_department_fk") is not None
+            })
+            departments_map = {}
+            if department_ids:
+                department_rows = (
+                    supabase.table("departments")
+                    .select("department_id, name, active")
+                    .in_("department_id", department_ids)
+                    .execute()
+                ).data or []
+                departments_map = {
+                    department.get("department_id"): department
+                    for department in department_rows
+                    if department.get("department_id") is not None
+                }
             team_members = [
                 {
                     **member,
+                    "is_leader": memberships_map.get(member.get("user_id"), {}).get("is_leader"),
                     "course": courses_map.get(member.get("course_fk")),
+                    "enrollment_course_fk": memberships_map.get(member.get("user_id"), {}).get("enrollment_course_fk"),
+                    "enrollment_course": courses_map.get(
+                        memberships_map.get(member.get("user_id"), {}).get("enrollment_course_fk")
+                    ),
+                    "enrollment_routed_at": memberships_map.get(member.get("user_id"), {}).get("enrollment_routed_at"),
+                    "enrollment_notes": memberships_map.get(member.get("user_id"), {}).get("enrollment_notes"),
+                    "home_department_id": member.get("home_department_fk"),
+                    "home_department": departments_map.get(member.get("home_department_fk")),
                 }
                 for member in team_members_raw
             ]
 
         interested_students = []
+        exploring_students = []
         if capstone_id and is_leader:
             try:
                 interest_result = interests_dl.get_interested_students(capstone_id)
@@ -288,7 +384,102 @@ async def get_my_capstone(
                     interested_students = interest_result.get("data", [])
             except Exception:
                 interested_students = []
-
+            try:
+                exploration_rows = (
+                    supabase.table("project_explorations")
+                    .select("*")
+                    .eq("team_fk", team_id)
+                    .in_("status", ["exploring", "pending_commitment", "committed"])
+                    .order("updated_at", desc=True)
+                    .execute()
+                    .data
+                    or []
+                )
+                exploration_student_ids = [
+                    row.get("student_fk")
+                    for row in exploration_rows
+                    if row.get("student_fk") is not None
+                ]
+                exploration_students_map = {}
+                exploration_courses_map = {}
+                exploration_departments_map = {}
+                if exploration_student_ids:
+                    exploration_students = (
+                        supabase.table("users")
+                        .select("user_id,email,course_fk,home_department_fk")
+                        .in_("user_id", exploration_student_ids)
+                        .execute()
+                        .data
+                        or []
+                    )
+                    exploration_students_map = {
+                        student.get("user_id"): student
+                        for student in exploration_students
+                        if student.get("user_id") is not None
+                    }
+                    exploration_course_ids = sorted({
+                        student.get("course_fk")
+                        for student in exploration_students
+                        if student.get("course_fk") is not None
+                    })
+                    if exploration_course_ids:
+                        exploration_courses = (
+                            supabase.table("courses")
+                            .select("course_id,code,name,active,active_terms,activation_mode,department_fk,routing_kind")
+                            .in_("course_id", exploration_course_ids)
+                            .execute()
+                            .data
+                            or []
+                        )
+                        exploration_courses_map = {
+                            course.get("course_id"): course
+                            for course in exploration_courses
+                            if course.get("course_id") is not None
+                        }
+                    exploration_department_ids = sorted({
+                        student.get("home_department_fk")
+                        for student in exploration_students
+                        if student.get("home_department_fk") is not None
+                    })
+                    if exploration_department_ids:
+                        exploration_departments = (
+                            supabase.table("departments")
+                            .select("department_id,name,active")
+                            .in_("department_id", exploration_department_ids)
+                            .execute()
+                            .data
+                            or []
+                        )
+                        exploration_departments_map = {
+                            department.get("department_id"): department
+                            for department in exploration_departments
+                            if department.get("department_id") is not None
+                        }
+                exploring_students = [
+                    {
+                        "exploration_id": row.get("exploration_id"),
+                        "status": row.get("status"),
+                        "message": row.get("message"),
+                        "student_commitment_confirmed_at": row.get("student_commitment_confirmed_at"),
+                        "student_commitment_confirmed_by_fk": row.get("student_commitment_confirmed_by_fk"),
+                        "team_commitment_confirmed_at": row.get("team_commitment_confirmed_at"),
+                        "team_commitment_confirmed_by_fk": row.get("team_commitment_confirmed_by_fk"),
+                        "student_commitment_confirmed": bool(row.get("student_commitment_confirmed_at")),
+                        "team_commitment_confirmed": bool(row.get("team_commitment_confirmed_at")),
+                        "created_at": row.get("created_at"),
+                        "updated_at": row.get("updated_at"),
+                        **(exploration_students_map.get(row.get("student_fk")) or {"user_id": row.get("student_fk")}),
+                        "course": exploration_courses_map.get(
+                            (exploration_students_map.get(row.get("student_fk")) or {}).get("course_fk")
+                        ),
+                        "home_department": exploration_departments_map.get(
+                            (exploration_students_map.get(row.get("student_fk")) or {}).get("home_department_fk")
+                        ),
+                    }
+                    for row in exploration_rows
+                ]
+            except Exception:
+                exploring_students = []
         return {
             "success": True,
             "teams": [{
@@ -296,11 +487,18 @@ async def get_my_capstone(
                 "project": project,
                 "team_members": team_members,
                 "interested_students": interested_students,
+                "exploring_students": exploring_students,
                 "is_leader": is_leader,
                 "leader_fk": team.get("leader_fk"),
                 "status": team.get("status"),
+                "commitment_roster_confirmed_at": team.get("commitment_roster_confirmed_at"),
+                "commitment_roster_confirmed_by_fk": team.get("commitment_roster_confirmed_by_fk"),
+                "commitment_roster_note": team.get("commitment_roster_note"),
             }],
             "is_leader": is_leader,
+            "explorations": student_explorations,
+            "commitment_requests": student_commitment_requests,
+            "marketplace": marketplace_settings,
         }
 
     except Exception as e:
@@ -365,6 +563,7 @@ async def create_user_for_admin(
         email=request.email,
         role=request.role,
         course_id=request.course_id,
+        home_department_id=request.home_department_id,
         active=request.active,
         actor_id=int(current_user["user_id"]),
         reason=request.reason,
@@ -432,6 +631,7 @@ async def update_user_for_admin(
         email=request.email,
         role=request.role,
         course_id=request.course_id,
+        home_department_id=request.home_department_id,
         active=request.active,
         actor_id=int(current_user["user_id"]),
         reason=request.reason,
@@ -496,7 +696,7 @@ async def get_course_roster(
 
         users_query = (
             supabase.table("users")
-            .select("user_id,email,role,course_fk,active_team_fk")
+            .select("user_id,email,role,course_fk,home_department_fk,active_team_fk")
             .eq("role", "student")
             .order("course_fk")
             .order("email")
@@ -552,6 +752,27 @@ async def get_course_roster(
             users_query = users_query.in_("user_id", sorted(visible_student_ids))
         students = users_query.execute().data or []
 
+        department_ids = sorted(
+            {
+                int(student.get("home_department_fk"))
+                for student in students
+                if student.get("home_department_fk") is not None
+            }
+        )
+        departments_map: Dict[int, Dict[str, Any]] = {}
+        if department_ids:
+            departments_res = (
+                supabase.table("departments")
+                .select("department_id,name,active")
+                .in_("department_id", department_ids)
+                .execute()
+            )
+            departments_map = {
+                int(department["department_id"]): department
+                for department in departments_res.data or []
+                if department.get("department_id") is not None
+            }
+
         team_ids = sorted(
             {
                 int(student.get("active_team_fk"))
@@ -602,6 +823,11 @@ async def get_course_roster(
                     "user_id": student.get("user_id"),
                     "email": student.get("email"),
                     "course_fk": student.get("course_fk"),
+                    "home_department_fk": student.get("home_department_fk"),
+                    "home_department_id": student.get("home_department_fk"),
+                    "home_department": departments_map.get(int(student["home_department_fk"]))
+                    if student.get("home_department_fk") is not None
+                    else None,
                     "active_team_fk": team_fk,
                     "team": team,
                     "capstone": capstone,
