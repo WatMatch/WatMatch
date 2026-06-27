@@ -8,40 +8,41 @@ import { ProgressSteps } from "@/components/ui/progress-steps";
 import type { ProjectFormValues } from "@/components/forms/project";
 import {
     defaultFormValues,
-    organizationFormSections,
     studentFormSections,
     studentFormSteps,
-    organizationFormSteps,
 } from "@/components/forms/project/config";
 
 import { Card, CardContent } from "@/components/ui/card";
 
 interface ProjectFormProps {
-    role?: string;
     initialValues?: Partial<ProjectFormValues>;
-    onSubmit?: (values: ProjectFormValues) => void;
+    onSubmit?: (values: ProjectFormValues) => void | Promise<void>;
     className?: string;
+    submitLabel?: string;
+    finalExtraSection?: React.ReactNode;
+    isSubmitting?: boolean;
+    submissionError?: string | null;
+}
+
+function buildStepState(activeStep: number) {
+    return studentFormSteps.map((step) => ({
+        ...step,
+        isActive: step.id === activeStep,
+        isCompleted: step.id < activeStep,
+    }));
 }
 
 export default function ProjectForm({
-    role,
     initialValues = {},
-    onSubmit = (values) => console.log(values),
+    onSubmit = () => undefined,
     className = "max-w-4xl mx-auto",
+    submitLabel = "Submit",
+    finalExtraSection,
+    isSubmitting = false,
+    submissionError = null,
 }: ProjectFormProps) {
-    const normalizedRole = role?.toLowerCase();
-    const formType =
-        normalizedRole === "organization" ? "organization" : "student";
-
-    // Select mapping based on formType
-    const formSections =
-        formType === "student" ? studentFormSections : organizationFormSections;
-
-    const initialSteps =
-        formType === "student" ? studentFormSteps : organizationFormSteps;
-
     const [currentStep, setCurrentStep] = React.useState(1);
-    const [steps, setSteps] = React.useState(initialSteps);
+    const [steps, setSteps] = React.useState(() => buildStepState(1));
 
     const form = useForm<ProjectFormValues>({
         defaultValues: {
@@ -50,14 +51,25 @@ export default function ProjectForm({
         },
     });
 
+    const initialValuesKey = React.useMemo(
+        () => JSON.stringify(initialValues ?? {}),
+        [initialValues]
+    );
+
+    React.useEffect(() => {
+        const parsedInitialValues = JSON.parse(
+            initialValuesKey
+        ) as Partial<ProjectFormValues>;
+        form.reset({
+            ...defaultFormValues,
+            ...parsedInitialValues,
+        });
+        setCurrentStep(1);
+        setSteps(buildStepState(1));
+    }, [form, initialValuesKey]);
+
     const updateSteps = (stepNumber: number) => {
-        setSteps(
-            steps.map((step) => ({
-                ...step,
-                isActive: step.id === stepNumber,
-                isCompleted: step.id < stepNumber,
-            }))
-        );
+        setSteps(buildStepState(stepNumber));
         setCurrentStep(stepNumber);
     };
 
@@ -66,7 +78,7 @@ export default function ProjectForm({
     };
 
     const renderStepContent = () => {
-        const StepComponent = formSections[currentStep];
+        const StepComponent = studentFormSections[currentStep];
         return StepComponent ? <StepComponent control={form.control} /> : null;
     };
 
@@ -82,6 +94,12 @@ export default function ProjectForm({
                     <CardContent className="p-2 flex-1 flex flex-col overflow-hidden">
                         <div className="flex-1 overflow-y-auto p-2">
                             {renderStepContent()}
+                            {currentStep === steps.length && finalExtraSection}
+                            {currentStep === steps.length && submissionError && (
+                                <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                                    {submissionError}
+                                </p>
+                            )}
                         </div>
 
                         <div className="flex justify-between pt-8 mt-4 border-t border-slate-100 flex-shrink-0">
@@ -116,8 +134,9 @@ export default function ProjectForm({
                                 <Button
                                     type="button"
                                     onClick={form.handleSubmit(handleSubmit)}
+                                    disabled={isSubmitting}
                                 >
-                                    Submit
+                                    {isSubmitting ? "Submitting..." : submitLabel}
                                 </Button>
                             )}
                         </div>

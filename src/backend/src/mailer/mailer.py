@@ -1,10 +1,12 @@
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import logging
 import os
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "templates")
+logger = logging.getLogger(__name__)
 
 env = Environment(
     loader=FileSystemLoader(TEMPLATE_DIR),
@@ -22,14 +24,14 @@ def send_match_email(to_email: str, student_name: str, project_title: str) -> bo
     from_email = os.getenv("FROM_EMAIL", smtp_user)
 
     if not smtp_user or not smtp_password:
-        print("Email not configured. Missing EMAIL_USER or EMAIL_PASSWORD.")
+        logger.info("Email not configured. Missing EMAIL_USER or EMAIL_PASSWORD.")
         return False
 
     subject = "You have been matched with a WatMatch project"
     try:
         template = env.get_template("matched_email.html")
     except Exception as e:
-        print(f"Failed to load email template: {e}")
+        logger.warning("Failed to load email template: %s", e)
         return False
 
     body = template.render(
@@ -49,10 +51,10 @@ def send_match_email(to_email: str, student_name: str, project_title: str) -> bo
             server.starttls()
             server.login(smtp_user, smtp_password)
             server.sendmail(from_email, [to_email], msg.as_string())
-        print(f"Match email sent to {to_email}")
+        logger.info("Match email sent to %s", to_email)
         return True
     except Exception as e:
-        print(f"Failed to send email: {e}")
+        logger.warning("Failed to send email: %s", e)
         return False
 
 
@@ -106,13 +108,13 @@ def _send_email(to_email: str, subject: str, template_name: str, **kwargs) -> bo
     from_email = os.getenv("FROM_EMAIL", smtp_user)
 
     if not smtp_user or not smtp_password:
-        print("Email not configured. Missing EMAIL_USER or EMAIL_PASSWORD.")
+        logger.info("Email not configured. Missing EMAIL_USER or EMAIL_PASSWORD.")
         return False
 
     try:
         template = env.get_template(template_name)
     except Exception as e:
-        print(f"Failed to load email template {template_name}: {e}")
+        logger.warning("Failed to load email template %s: %s", template_name, e)
         return False
 
     body = template.render(**kwargs)
@@ -128,8 +130,8 @@ def _send_email(to_email: str, subject: str, template_name: str, **kwargs) -> bo
             server.starttls()
             server.login(smtp_user, smtp_password)
             server.sendmail(from_email, [to_email], msg.as_string())
-        print(f"Email sent to {to_email} (Subject: {subject})")
+        logger.info("Email sent to %s (Subject: %s)", to_email, subject)
         return True
     except Exception as e:
-        print(f"Failed to send email: {e}")
+        logger.warning("Failed to send email: %s", e)
         return False
