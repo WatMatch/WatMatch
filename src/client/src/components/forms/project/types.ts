@@ -1,8 +1,12 @@
 import { Control } from "react-hook-form";
 
 export interface ProjectFormValues {
+    submissionTrack: "home_course" | "interdisciplinary";
+    interdisciplinaryCourseId: string;
+    submissionTrackLocked: boolean;
     projectTitle: string;
-    projectStartDate: "Spring 2025" | "Fall 2025" | "";
+    projectStartDate: string;
+    howHeardAboutCapstone: string;
     organizationName: string;
     primaryContact: string;
     email: string;
@@ -14,13 +18,29 @@ export interface ProjectFormValues {
     problemArea: string;
     mainObjectives: string;
     scopeOfWork: string;
+    deliverableTypes: string[];
     deliverables: string;
+    successCriteria: string;
+    validationPlan: string;
+    stakeholders: string;
+    risksConstraints: string;
+    publicEvaluationAcknowledged: boolean;
+    ipAcknowledged: boolean;
+    confidentialityAcknowledged: boolean;
     meetingFrequency: string;
     skillsRequired: string[];
+    proposedTeamMembers: string;
     uwResources: string;
     orgResources: string;
     otherResources: string;
     projectDisciplines: string[];
+    partnerOpportunityId: string;
+    externalPartnerName: string;
+    externalPartnerOrganization: string;
+    externalPartnerEmail: string;
+    externalPartnerWebsite: string;
+    externalPartnerNotes: string;
+    externalPartnerConfirmed: boolean;
 }
 
 export interface FormSectionProps {

@@ -5,7 +5,6 @@ import {
     FormControl,
     FormMessage,
 } from "@/components/ui/form";
-import { Textarea } from "@/components/ui/textarea";
 import {
     Select,
     SelectContent,
@@ -16,8 +15,31 @@ import {
 import { FormSectionProps } from "./types";
 import { skills } from "./config";
 import { MultiSelect } from "@/components/ui/multiselect";
+import { fetchSkills } from "@/services/skills.service";
+import { useEffect, useState } from "react";
+import { Textarea } from "@/components/ui/textarea";
 
 export function ProjectTeamSection({ control }: FormSectionProps) {
+    const [skillOptions, setSkillOptions] = useState<string[]>(skills);
+
+    useEffect(() => {
+        let isMounted = true;
+        async function loadSkills() {
+            try {
+                const rows = await fetchSkills();
+                if (isMounted && rows.length > 0) {
+                    setSkillOptions(rows.map((skill) => skill.name));
+                }
+            } catch (error) {
+                console.error("Failed to load skills:", error);
+            }
+        }
+        loadSkills();
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
     return (
         <div className="space-y-4">
             <h2 className="text-lg font-semibold">Project Team</h2>
@@ -45,6 +67,10 @@ export function ProjectTeamSection({ control }: FormSectionProps) {
                                     Biweekly
                                 </SelectItem>
                                 <SelectItem value="monthly">Monthly</SelectItem>
+                                <SelectItem value="end_of_term_presentation">
+                                    End of term presentation only
+                                </SelectItem>
+                                <SelectItem value="other">Other</SelectItem>
                             </SelectContent>
                         </Select>
                         <FormMessage />
@@ -68,13 +94,32 @@ export function ProjectTeamSection({ control }: FormSectionProps) {
                         </FormLabel>
                         <FormControl>
                             <MultiSelect
-                                options={skills.map((s) => ({
+                                options={skillOptions.map((s) => ({
                                     label: s,
                                     value: s,
                                 }))}
                                 value={field.value || []}
                                 onChange={field.onChange}
                                 placeholder="Search and select skills..."
+                                allowCustom
+                                customLabel="Add skill"
+                            />
+                        </FormControl>
+                        <FormMessage />
+                    </FormItem>
+                )}
+            />
+
+            <FormField
+                control={control}
+                name="proposedTeamMembers"
+                render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Team Members You Have in Mind</FormLabel>
+                        <FormControl>
+                            <Textarea
+                                {...field}
+                                placeholder="Optional: up to three names and Waterloo email addresses."
                             />
                         </FormControl>
                         <FormMessage />

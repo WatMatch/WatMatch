@@ -2,11 +2,11 @@ import { Control } from "react-hook-form";
 import { ProjectFormValues } from "./types";
 import {
     PreliminaryInfoSection,
-    OrganizationInfoSection,
     ProjectInfoSection,
     ProjectTeamSection,
     ResourcesSection,
 } from "./";
+import { buildTermOptions } from "@/lib/term-options";
 
 export interface FormStep {
     id: number;
@@ -21,7 +21,11 @@ export interface FormSection {
 }
 
 export const defaultFormValues: ProjectFormValues = {
+    submissionTrack: "home_course",
+    interdisciplinaryCourseId: "",
+    submissionTrackLocked: false,
     projectStartDate: "",
+    howHeardAboutCapstone: "",
     projectTitle: "",
     organizationName: "",
     primaryContact: "",
@@ -34,49 +38,51 @@ export const defaultFormValues: ProjectFormValues = {
     problemArea: "",
     mainObjectives: "",
     scopeOfWork: "",
+    deliverableTypes: [],
     deliverables: "",
+    successCriteria: "",
+    validationPlan: "",
+    stakeholders: "",
+    risksConstraints: "",
+    publicEvaluationAcknowledged: false,
+    ipAcknowledged: false,
+    confidentialityAcknowledged: false,
     meetingFrequency: "",
     skillsRequired: [],
+    proposedTeamMembers: "",
     uwResources: "",
     orgResources: "",
     otherResources: "",
     projectDisciplines: [],
+    partnerOpportunityId: "",
+    externalPartnerName: "",
+    externalPartnerOrganization: "",
+    externalPartnerEmail: "",
+    externalPartnerWebsite: "",
+    externalPartnerNotes: "",
+    externalPartnerConfirmed: false,
 };
 
+export const projectStartTerms = buildTermOptions();
+
+export const deliverableTypeOptions = [
+    "New protocols/processes",
+    "Presentation",
+    "Report",
+    "Resources",
+    "Survey tools",
+    "Website",
+    "Prototype",
+    "Other",
+];
+
 // --- Form Steps and Section Mappings ---
-export const defaultFormSteps: FormStep[] = [
-    { id: 1, name: "User Name", isActive: true, isCompleted: false },
-    { id: 2, name: "Location", isActive: false, isCompleted: false },
-    { id: 3, name: "Business", isActive: false, isCompleted: false },
-    { id: 4, name: "Bank", isActive: false, isCompleted: false },
-    { id: 5, name: "Verification", isActive: false, isCompleted: false },
-];
-
-export const organizationFormSteps: FormStep[] = [
-    { id: 1, name: "User Name", isActive: true, isCompleted: false },
-    { id: 2, name: "Location", isActive: false, isCompleted: false },
-    { id: 3, name: "Business", isActive: false, isCompleted: false },
-    { id: 4, name: "Bank", isActive: false, isCompleted: false },
-    { id: 5, name: "Verification", isActive: false, isCompleted: false },
-];
-
 export const studentFormSteps: FormStep[] = [
     { id: 1, name: "Basics", isActive: true, isCompleted: false },
     { id: 2, name: "Project", isActive: false, isCompleted: false },
     { id: 3, name: "Team", isActive: false, isCompleted: false },
     { id: 4, name: "Resources", isActive: false, isCompleted: false },
 ];
-
-export const organizationFormSections: Record<
-    number,
-    React.ComponentType<{ control: Control<ProjectFormValues> }>
-> = {
-    1: PreliminaryInfoSection,
-    2: OrganizationInfoSection,
-    3: ProjectInfoSection,
-    4: ProjectTeamSection,
-    5: ResourcesSection,
-};
 
 export const studentFormSections: Record<
     number,
