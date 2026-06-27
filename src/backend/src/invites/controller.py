@@ -1,28 +1,30 @@
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+import logging
+from pydantic import BaseModel, Field
 from .invites_bl import InvitesBusinessLogic
 from ..auth.dependencies import get_current_user
 from typing import Dict, Any
 
 router = APIRouter(prefix="/invites", tags=["invites"])
 invites_business = InvitesBusinessLogic()
+logger = logging.getLogger(__name__)
 
 
 class CreateInviteRequest(BaseModel):
     team_id: int
-    email: str
+    email: str = Field(..., min_length=3, max_length=320)
 
 
 class AcceptInviteRequest(BaseModel):
-    invite_id: str
+    invite_id: str = Field(..., min_length=1, max_length=32)
 
 
 class DeclineInviteRequest(BaseModel):
-    invite_id: str
+    invite_id: str = Field(..., min_length=1, max_length=32)
 
 
 class RevokeInviteRequest(BaseModel):
-    invite_id: str
+    invite_id: str = Field(..., min_length=1, max_length=32)
 
 
 @router.post("/")
@@ -59,28 +61,7 @@ async def create_invite(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error occurred: {type(e).__name__}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/{invite_id}")
-async def get_invite(invite_id: str) -> Dict[str, Any]:
-    """Get an invite by its ID"""
-    try:
-        result = invites_business.get_invite(invite_id)
-
-        if not result["success"]:
-            status_code = 404 if "not found" in result["message"].lower(
-            ) else 400
-            raise HTTPException(status_code=status_code,
-                                detail=result["message"])
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error occurred: {type(e).__name__}: {str(e)}")
+        logger.exception("Create invite failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -97,7 +78,11 @@ async def get_team_invites(
             raise HTTPException(
                 status_code=401, detail="User ID not found in token")
 
-        result = invites_business.get_team_invites(team_id, requester_id)
+        result = invites_business.get_team_invites(
+            team_id,
+            requester_id,
+            current_user.get("role") or "student",
+        )
 
         if not result["success"]:
             status_code = 404 if "not found" in result["message"].lower(
@@ -112,7 +97,7 @@ async def get_team_invites(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error occurred: {type(e).__name__}: {str(e)}")
+        logger.exception("Accept invite failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -146,7 +131,7 @@ async def get_user_invites(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error occurred: {type(e).__name__}: {str(e)}")
+        logger.exception("Decline invite failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -178,7 +163,7 @@ async def accept_invite(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error occurred: {type(e).__name__}: {str(e)}")
+        logger.exception("Revoke invite failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -210,11 +195,11 @@ async def decline_invite(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error occurred: {type(e).__name__}: {str(e)}")
+        logger.exception("User invite lookup failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/revoke")
+@router.post("/revoke")
 async def revoke_invite(
     request: RevokeInviteRequest,
     current_user: Dict[str, Any] = Depends(get_current_user)
@@ -227,12 +212,16 @@ async def revoke_invite(
             raise HTTPException(
                 status_code=401, detail="User ID not found in token")
 
-        result = invites_business.revoke_invite(request.invite_id, user_id)
+        result = invites_business.revoke_invite(
+            request.invite_id,
+            user_id,
+            current_user.get("role") or "student",
+        )
 
         if not result["success"]:
             status_code = 404 if "not found" in result["message"].lower(
             ) else 400
-            if "only the team leader" in result["message"].lower():
+            if "only the team leader" in result["message"].lower() or "scoped instructors/admins" in result["message"].lower():
                 status_code = 403
             raise HTTPException(status_code=status_code,
                                 detail=result["message"])
@@ -242,5 +231,5 @@ async def revoke_invite(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error occurred: {type(e).__name__}: {str(e)}")
+        logger.exception("Team invite lookup failed")
         raise HTTPException(status_code=500, detail=str(e))

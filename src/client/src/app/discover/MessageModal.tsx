@@ -18,6 +18,7 @@ interface MessageModalProps {
     onMessageChange: (message: string) => void;
     onSubmit: () => void;
     isSubmitting: boolean;
+    submitLabel?: string;
 }
 
 export function MessageModal({
@@ -29,9 +30,10 @@ export function MessageModal({
     onMessageChange,
     onSubmit,
     isSubmitting,
+    submitLabel = "Send Request",
 }: MessageModalProps) {
     return (
-        <Dialog open={isOpen} onOpenChange={(o) => !o && onClose()}>
+        <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="space-y-4">
                 <DialogHeader>
                     <DialogTitle>{title}</DialogTitle>
@@ -39,8 +41,8 @@ export function MessageModal({
                 </DialogHeader>
                 <Textarea
                     value={message}
-                    onChange={(e) => onMessageChange(e.target.value)}
-                    placeholder="Your message…"
+                    onChange={(event) => onMessageChange(event.target.value)}
+                    placeholder="Your message..."
                     rows={6}
                     className="min-h-[160px]"
                 />
@@ -53,7 +55,7 @@ export function MessageModal({
                         Cancel
                     </Button>
                     <Button onClick={onSubmit} disabled={isSubmitting}>
-                        {isSubmitting ? "Sending…" : "Send Request"}
+                        {isSubmitting ? "Saving..." : submitLabel}
                     </Button>
                 </DialogFooter>
             </DialogContent>
