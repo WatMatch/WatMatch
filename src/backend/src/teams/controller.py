@@ -1,276 +1,368 @@
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Query, Depends
+from pydantic import BaseModel, Field
+from typing import Dict, Any, Optional, List
+
 from .teams_bl import TeamsBusinessLogic
-from typing import Dict, Any, Optional
+from ..auth.dependencies import get_current_user
 
 router = APIRouter(prefix="/teams", tags=["teams"])
 teams_business = TeamsBusinessLogic()
 
 
-class CreateTeamRequest(BaseModel):
-    leader_id: int
-    capstone_id: Optional[int] = None
-
-
 class LeaveTeamRequest(BaseModel):
-    user_id: int
     team_id: int
 
 
 class AcceptMemberRequest(BaseModel):
-    leader_id: int
     student_id: int
     team_id: int
 
 
 class RejectMemberRequest(BaseModel):
-    leader_id: int
     student_id: int
     team_id: int
+    reason: Optional[str] = Field(default=None, max_length=2000)
 
 
 class RemoveMemberRequest(BaseModel):
-    leader_id: int
     student_id: int
     team_id: int
+
+
+class DeleteTeamRequest(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+class PrivilegedMemberUpdateRequest(BaseModel):
+    student_id: int
+    reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+class ReassignLeaderRequest(BaseModel):
+    new_leader_id: int
+    reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+class FinalizeTeamRequest(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+class ManagedTeamCreateRequest(BaseModel):
+    student_ids: List[int] = Field(..., min_length=1, max_length=20)
+    leader_id: int
+    reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+@router.post("/create-empty")
+async def create_empty_team(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    if current_user.get("role") != "student":
+        raise HTTPException(status_code=403, detail="Only students can create teams")
+
+    user_id = current_user.get("user_id")
+    course_fk = current_user.get("course_fk")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid authenticated user")
+    if course_fk is None:
+        raise HTTPException(status_code=400, detail="Your account must be assigned to a course before creating a team")
+
+    result = teams_business.create_team(leader_id=user_id, course_id=course_fk)
+    if not result["success"]:
+        message = result["message"].lower()
+        if "not found" in message:
+            raise HTTPException(status_code=404, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+
+@router.post("/create-managed")
+async def create_managed_team(
+    request: ManagedTeamCreateRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    role = (current_user.get("role") or "").lower()
+    if role not in {"admin", "instructor"}:
+        raise HTTPException(status_code=403, detail="Only admins/instructors can create managed teams")
+
+    result = teams_business.create_managed_team(
+        student_ids=request.student_ids,
+        leader_id=request.leader_id,
+        actor_id=current_user.get("user_id"),
+        actor_role=role,
+        reason=request.reason,
+    )
+    if not result["success"]:
+        msg = result["message"].lower()
+        if "not found" in msg:
+            raise HTTPException(status_code=404, detail=result["message"])
+        if "forbidden" in msg or "instructor-created" in msg:
+            raise HTTPException(status_code=403, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
 
 
 @router.get("/")
 async def get_all_teams(
     page: Optional[int] = Query(None, ge=1),
-    page_size: Optional[int] = Query(None, ge=1, le=100)
+    page_size: Optional[int] = Query(None, ge=1, le=100),
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """Retrieve all teams with optional pagination."""
-    try:
-        if (page is None) != (page_size is None):
-            raise HTTPException(
-                status_code=400,
-                detail="Both 'page' and 'page_size' must be provided together for pagination"
-            )
-
-        result = teams_business.get_all_teams(page, page_size)
-
-        if not result["success"]:
-            raise HTTPException(status_code=500, detail=result["message"])
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error occurred: {type(e).__name__}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/create")
-async def create_team(request: CreateTeamRequest) -> Dict[str, Any]:
-    """
-    Create a new team with the specified leader.
-
-    What it does:
-    - Creates a new team with the provided leader
-    - Associates team with capstone if capstone_id is provided
-    - Initializes team with leader as the only member
-    - Sets team status to "forming"
-    """
-    try:
-        result = teams_business.create_team(
-            leader_id=request.leader_id,
-            capstone_id=request.capstone_id
+    role = (current_user.get("role") or "").lower()
+    if role not in {"instructor", "admin"}:
+        raise HTTPException(status_code=403, detail="Instructor/admin access required")
+    if (page is None) != (page_size is None):
+        raise HTTPException(
+            status_code=400,
+            detail="Both 'page' and 'page_size' must be provided together for pagination",
         )
-
-        if not result["success"]:
-            if "not found" in result["message"].lower():
-                raise HTTPException(status_code=404, detail=result["message"])
-            else:
-                raise HTTPException(status_code=400, detail=result["message"])
-
-        return {
-            "success": True,
-            "message": result["message"],
-            "data": result["data"]
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error occurred: {type(e).__name__}: {str(e)}")
-        return {
-            "success": False,
-            "error_type": type(e).__name__,
-            "error_message": str(e)
-        }
+    result = teams_business.get_all_teams(
+        page,
+        page_size,
+        actor_role=current_user.get("role"),
+        actor_id=current_user.get("user_id"),
+    )
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result["message"])
+    return result
 
 
 @router.post("/leave")
-async def leave_team(request: LeaveTeamRequest) -> Dict[str, Any]:
-    """
-    Allow a user to leave a team.
+async def leave_team(
+    request: LeaveTeamRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    if current_user.get("role") != "student":
+        raise HTTPException(status_code=403, detail="Only students can leave teams")
+    result = teams_business.leave_team(user_id=current_user.get("user_id"), team_id=request.team_id)
+    if not result["success"]:
+        if "not found" in result["message"].lower():
+            raise HTTPException(status_code=404, detail=result["message"])
+        if "forbidden" in result["message"].lower():
+            raise HTTPException(status_code=403, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
+    return {
+        "success": True,
+        "message": result["message"],
+        "data": result["data"],
+    }
 
-    What it does:
-    - Regular members: Removes user from team membership arrays
-    - Team leaders: Deletes entire team and associated capstone project
-    - Handles cascade deletion when leader leaves
-    """
-    try:
-        result = teams_business.leave_team(
-            user_id=request.user_id,
-            team_id=request.team_id
-        )
 
-        if not result["success"]:
-            if "not found" in result["message"].lower():
-                raise HTTPException(status_code=404, detail=result["message"])
-            else:
-                raise HTTPException(status_code=400, detail=result["message"])
-
-        return {
-            "success": True,
-            "message": result["message"],
-            "data": result["data"]
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error occurred: {type(e).__name__}: {str(e)}")
-        return {
-            "success": False,
-            "error_type": type(e).__name__,
-            "error_message": str(e)
-        }
+@router.post("/{team_id}/abandon-solo-project")
+async def abandon_solo_project(
+    team_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    if current_user.get("role") != "student":
+        raise HTTPException(status_code=403, detail="Only students can abandon their own solo project")
+    result = teams_business.abandon_solo_project(
+        user_id=current_user.get("user_id"),
+        team_id=team_id,
+    )
+    if not result["success"]:
+        msg = result["message"].lower()
+        if "not found" in msg:
+            raise HTTPException(status_code=404, detail=result["message"])
+        if "forbidden" in msg:
+            raise HTTPException(status_code=403, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
 
 
 @router.post("/accept")
-async def accept_member(request: AcceptMemberRequest) -> Dict[str, Any]:
-    """
-    Allow a team leader to accept an interested student as a full member.
+async def accept_member(
+    request: AcceptMemberRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    if current_user.get("role") != "student":
+        raise HTTPException(status_code=403, detail="Only students can accept members to teams")
+    result = teams_business.accept_member(
+        leader_id=current_user.get("user_id"),
+        student_id=request.student_id,
+        team_id=request.team_id,
+    )
+    if not result["success"]:
+        msg = result["message"].lower()
+        if "not found" in msg:
+            raise HTTPException(status_code=404, detail=result["message"])
+        if "forbidden" in msg:
+            raise HTTPException(status_code=403, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
+    return {
+        "success": True,
+        "message": result["message"],
+        "data": result["data"],
+        "marketplace_exploration": result.get("marketplace_exploration") is True,
+        "exploration": result.get("exploration"),
+    }
 
-    What it does:
-    - Validates that the caller is the team leader
-    - Validates that the student has expressed interest
-    - Validates that the student is not already in another team
-    - Moves the student to the members array
-    - Removes ALL interest records for this student (from all teams)
-    - Triggers an email notification to the student
-    """
-    try:
-        print(f"🔍 Accept member request: leader_id={request.leader_id}, student_id={request.student_id}, team_id={request.team_id}")
-        
-        result = teams_business.accept_member(
-            leader_id=request.leader_id,
-            student_id=request.student_id,
-            team_id=request.team_id,
-        )
-
-        print(f"📊 Accept member result: {result}")
-
-        if not result["success"]:
-            msg = result["message"].lower()
-            print(f"❌ Accept failed: {result['message']}")
-            if "not found" in msg:
-                raise HTTPException(status_code=404, detail=result["message"])
-            if "forbidden" in msg:
-                raise HTTPException(status_code=403, detail=result["message"])
-            raise HTTPException(status_code=400, detail=result["message"])
-
-        return {
-            "success": True,
-            "message": result["message"],
-            "data": result["data"],
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"💥 Error occurred: {type(e).__name__}: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return {
-            "success": False,
-            "error_type": type(e).__name__,
-            "error_message": str(e),
-        }
 
 @router.post("/reject")
-async def reject_member(request: RejectMemberRequest) -> Dict[str, Any]:
-    """
-    Allow a team leader to reject an interested student.
-
-    What it does:
-    - Validates that the caller is the team leader
-    - Removes the student's interest record from team_interest table
-    - Student can re-apply later if they choose
-    """
-    try:
-        result = teams_business.reject_member(
-            leader_id=request.leader_id,
-            student_id=request.student_id,
-            team_id=request.team_id,
-        )
-
-        if not result["success"]:
-            msg = result["message"].lower()
-            if "not found" in msg:
-                raise HTTPException(status_code=404, detail=result["message"])
-            if "forbidden" in msg:
-                raise HTTPException(status_code=403, detail=result["message"])
-            raise HTTPException(status_code=400, detail=result["message"])
-
-        return {
-            "success": True,
-            "message": result["message"],
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error occurred: {type(e).__name__}: {str(e)}")
-        return {
-            "success": False,
-            "error_type": type(e).__name__,
-            "error_message": str(e),
-        }
+async def reject_member(
+    request: RejectMemberRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    if current_user.get("role") != "student":
+        raise HTTPException(status_code=403, detail="Only students can reject requests")
+    result = teams_business.reject_member(
+        leader_id=current_user.get("user_id"),
+        student_id=request.student_id,
+        team_id=request.team_id,
+        reason=request.reason,
+    )
+    if not result["success"]:
+        msg = result["message"].lower()
+        if "not found" in msg:
+            raise HTTPException(status_code=404, detail=result["message"])
+        if "forbidden" in msg:
+            raise HTTPException(status_code=403, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
+    return {"success": True, "message": result["message"]}
 
 
 @router.post("/remove")
-async def remove_member(request: RemoveMemberRequest) -> Dict[str, Any]:
-    """
-    Allow a team leader to remove an existing team member.
+async def remove_member(
+    request: RemoveMemberRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    if current_user.get("role") != "student":
+        raise HTTPException(status_code=403, detail="Only students can remove members")
+    result = teams_business.remove_member(
+        leader_id=current_user.get("user_id"),
+        student_id=request.student_id,
+        team_id=request.team_id,
+    )
+    if not result["success"]:
+        msg = result["message"].lower()
+        if "not found" in msg:
+            raise HTTPException(status_code=404, detail=result["message"])
+        if "forbidden" in msg:
+            raise HTTPException(status_code=403, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
+    return {"success": True, "message": result["message"], "data": result["data"]}
 
-    What it does:
-    - Validates that the caller is the team leader
-    - Validates that the target is a current member
-    - Removes the member from the members array
-    - Leader cannot remove themselves (must use leave instead)
-    """
-    try:
-        result = teams_business.remove_member(
-            leader_id=request.leader_id,
-            student_id=request.student_id,
-            team_id=request.team_id,
-        )
 
-        if not result["success"]:
-            msg = result["message"].lower()
-            if "not found" in msg:
-                raise HTTPException(status_code=404, detail=result["message"])
-            if "forbidden" in msg:
-                raise HTTPException(status_code=403, detail=result["message"])
-            raise HTTPException(status_code=400, detail=result["message"])
+@router.post("/{team_id}/disband")
+async def delete_team(
+    team_id: int,
+    request: Optional[DeleteTeamRequest] = None,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    if current_user.get("role") not in {"admin", "instructor"}:
+        raise HTTPException(status_code=403, detail="Only admins/instructors can disband teams")
 
-        return {
-            "success": True,
-            "message": result["message"],
-            "data": result["data"],
-        }
+    result = teams_business.delete_team_as_privileged(
+        team_id=team_id,
+        actor_id=current_user.get("user_id"),
+        actor_role=current_user.get("role"),
+        reason=request.reason if request else None,
+    )
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error occurred: {type(e).__name__}: {str(e)}")
-        return {
-            "success": False,
-            "error_type": type(e).__name__,
-            "error_message": str(e),
-        }
+    if not result["success"]:
+        msg = result["message"].lower()
+        if "not found" in msg:
+            raise HTTPException(status_code=404, detail=result["message"])
+        if "forbidden" in msg:
+            raise HTTPException(status_code=403, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
+
+    return result
+
+
+@router.post("/{team_id}/add-member")
+async def add_member_privileged(
+    team_id: int,
+    request: PrivilegedMemberUpdateRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    if current_user.get("role") not in {"admin", "instructor"}:
+        raise HTTPException(status_code=403, detail="Only admins/instructors can modify teams")
+    result = teams_business.add_member_as_privileged(
+        team_id=team_id,
+        student_id=request.student_id,
+        actor_id=current_user.get("user_id"),
+        actor_role=current_user.get("role"),
+        reason=request.reason,
+    )
+    if not result["success"]:
+        msg = result["message"].lower()
+        if "not found" in msg:
+            raise HTTPException(status_code=404, detail=result["message"])
+        if "forbidden" in msg:
+            raise HTTPException(status_code=403, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+
+@router.post("/{team_id}/remove-member")
+async def remove_member_privileged(
+    team_id: int,
+    request: PrivilegedMemberUpdateRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    if current_user.get("role") not in {"admin", "instructor"}:
+        raise HTTPException(status_code=403, detail="Only admins/instructors can modify teams")
+    result = teams_business.remove_member_as_privileged(
+        team_id=team_id,
+        student_id=request.student_id,
+        actor_id=current_user.get("user_id"),
+        actor_role=current_user.get("role"),
+        reason=request.reason,
+    )
+    if not result["success"]:
+        msg = result["message"].lower()
+        if "not found" in msg:
+            raise HTTPException(status_code=404, detail=result["message"])
+        if "forbidden" in msg:
+            raise HTTPException(status_code=403, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+
+@router.post("/{team_id}/reassign-leader")
+async def reassign_team_leader(
+    team_id: int,
+    request: ReassignLeaderRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    role = (current_user.get("role") or "").lower()
+    if role not in {"student", "instructor", "admin"}:
+        raise HTTPException(status_code=403, detail="Only students, instructors, or admins can reassign leadership")
+    result = teams_business.reassign_leader(
+        team_id=team_id,
+        requester_id=current_user.get("user_id"),
+        requester_role=role,
+        new_leader_id=request.new_leader_id,
+        reason=request.reason,
+    )
+    if not result["success"]:
+        msg = result["message"].lower()
+        if "not found" in msg:
+            raise HTTPException(status_code=404, detail=result["message"])
+        if "forbidden" in msg:
+            raise HTTPException(status_code=403, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+
+@router.post("/{team_id}/finalize")
+async def finalize_team(
+    team_id: int,
+    request: Optional[FinalizeTeamRequest] = None,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    role = (current_user.get("role") or "").lower()
+    if role not in {"student", "instructor", "admin"}:
+        raise HTTPException(status_code=403, detail="Team leader, scoped instructor, or admin access required to finalize recruiting")
+    result = teams_business.finalize_team(
+        team_id=team_id,
+        actor_id=current_user.get("user_id"),
+        actor_role=role,
+        reason=request.reason if request else None,
+    )
+    if not result["success"]:
+        msg = result["message"].lower()
+        if "not found" in msg:
+            raise HTTPException(status_code=404, detail=result["message"])
+        if "forbidden" in msg:
+            raise HTTPException(status_code=403, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
