@@ -110,7 +110,7 @@ class UsersDataLogic:
         try:
             query = (
                 supabase.table(self.table_name)
-                .select("user_id,email,role,course_fk,active_team_fk,active,created_at", count="exact")
+                .select("user_id,email,role,course_fk,home_department_fk,active_team_fk,active,created_at", count="exact")
                 .order("role")
                 .order("email")
             )
@@ -130,7 +130,7 @@ class UsersDataLogic:
             if course_ids:
                 courses = (
                     supabase.table("courses")
-                    .select("course_id,code,name,term,active")
+                    .select("course_id,code,name,active,active_terms,activation_mode,department_fk,routing_kind,requires_project_support")
                     .in_("course_id", course_ids)
                     .execute()
                     .data
@@ -142,10 +142,33 @@ class UsersDataLogic:
                     if course.get("course_id") is not None
                 }
 
+            department_ids = sorted({
+                user.get("home_department_fk")
+                for user in users
+                if user.get("home_department_fk") is not None
+            })
+            departments_map: Dict[int, Dict[str, Any]] = {}
+            if department_ids:
+                departments = (
+                    supabase.table("departments")
+                    .select("department_id,name,active")
+                    .in_("department_id", department_ids)
+                    .execute()
+                    .data
+                    or []
+                )
+                departments_map = {
+                    department["department_id"]: department
+                    for department in departments
+                    if department.get("department_id") is not None
+                }
+
             enriched_users = [
                 {
                     **user,
                     "course": courses_map.get(user.get("course_fk")),
+                    "home_department_id": user.get("home_department_fk"),
+                    "home_department": departments_map.get(user.get("home_department_fk")),
                 }
                 for user in users
             ]
@@ -158,6 +181,7 @@ class UsersDataLogic:
         email: str,
         role: str,
         course_id: Optional[int],
+        home_department_id: Optional[int],
         active: bool,
         actor_id: int,
         reason: Optional[str] = None,
@@ -169,6 +193,7 @@ class UsersDataLogic:
                     "p_email": email,
                     "p_role": role,
                     "p_course_id": course_id,
+                    "p_home_department_id": home_department_id,
                     "p_actor_id": actor_id,
                     "p_active": active,
                     "p_reason": reason,
@@ -225,6 +250,7 @@ class UsersDataLogic:
         email: str,
         role: str,
         course_id: Optional[int],
+        home_department_id: Optional[int],
         active: bool,
         actor_id: int,
         reason: Optional[str] = None,
@@ -237,6 +263,7 @@ class UsersDataLogic:
                     "p_email": email,
                     "p_role": role,
                     "p_course_id": course_id,
+                    "p_home_department_id": home_department_id,
                     "p_active": active,
                     "p_actor_id": actor_id,
                     "p_reason": reason,
