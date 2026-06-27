@@ -1,4 +1,4 @@
-import { apiFetch, buildApiUrl } from "@/lib/api-client";
+import { apiFetch, buildApiUrl, readApiError } from "@/lib/api-client";
 
 /**
  * Submit interest in a capstone project
@@ -17,7 +17,7 @@ export async function submitInterest(
     );
 
     if (!response.ok) {
-        throw new Error(`Failed to submit interest: ${response.status}`);
+        throw new Error(await readApiError(response, "Failed to submit interest"));
     }
 }
 
@@ -33,6 +33,6 @@ export async function withdrawInterest(capstoneId: string): Promise<void> {
     );
 
     if (!response.ok) {
-        throw new Error(`Failed to withdraw interest: ${response.status}`);
+        throw new Error(await readApiError(response, "Failed to withdraw interest"));
     }
 }
