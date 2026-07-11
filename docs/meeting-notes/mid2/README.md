@@ -1,4 +1,4 @@
-﻿# Mid 2 Meeting Notes
+# Mid 2 Meeting Notes
 
 Mid 2 notes cover Single-Course WatMatch planning, feedback-team meetings, the initial past-capstones rollout, and student feedback from the deployed archive.
 
@@ -11,3 +11,5 @@ Mid 2 notes cover Single-Course WatMatch planning, feedback-team meetings, the i
 - `2026-06-21_past_capstones_feedback_summary.md` - actionable past-capstones product feedback.
 - `2026-06-28_mid2_feature_checkin.md` - Mid 2 feature coverage and demo-readiness check.
 - `2026-07-05_mid2_wrapup_checkpoint.md` - Mid 2 documentation and artifact wrap-up.
+- `stakeholder_meeting_07_09.md` - stakeholder alignment on Mid 3 roles and interdisciplinary enrollment routing.
+
