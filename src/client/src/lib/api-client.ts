@@ -8,6 +8,24 @@ let failedQueue: Array<{
     reject: (error: Error) => void;
 }> = [];
 
+const RAW_API_BASE_URL =
+    process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
+const API_BASE_URL = RAW_API_BASE_URL.replace(/\/$/, "");
+const API_ORIGIN_URL = API_BASE_URL.replace(/\/api\/v1$/, "");
+const TRANSIENT_FETCH_RETRY_DELAY_MS = 250;
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const normalizeApiUrl = (base: string): string => {
+    if (base.startsWith("http")) {
+        return base;
+    }
+    if (base.startsWith("/api/v1")) {
+        return `${API_ORIGIN_URL}${base}`;
+    }
+    return `${API_BASE_URL}${base.startsWith("/") ? base : `/${base}`}`;
+};
+
 const processQueue = (error: Error | null, token: string | null = null) => {
     failedQueue.forEach((prom) => {
         if (error) {
@@ -19,19 +37,35 @@ const processQueue = (error: Error | null, token: string | null = null) => {
     failedQueue = [];
 };
 
-const RAW_API_BASE_URL =
-    process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
-const API_BASE_URL = RAW_API_BASE_URL.replace(/\/$/, "");
-const API_ORIGIN_URL = API_BASE_URL.replace(/\/api\/v1$/, "");
+const clearLocalAuth = () => {
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
+    localStorage.removeItem("userData");
+};
 
-const normalizeApiUrl = (base: string): string => {
-    if (base.startsWith("http")) {
-        return base;
+const isSafeRequestMethod = (method?: string) => {
+    const normalized = (method || "GET").toUpperCase();
+    return normalized === "GET" || normalized === "HEAD";
+};
+
+const isTransientFetchError = (error: unknown) =>
+    error instanceof TypeError &&
+    /failed to fetch|networkerror|load failed/i.test(error.message);
+
+const fetchWithTransientRetry = async (
+    url: string,
+    options: RequestInit,
+    canRetry: boolean
+) => {
+    try {
+        return await fetch(url, options);
+    } catch (error) {
+        if (!canRetry || !isTransientFetchError(error)) {
+            throw error;
+        }
+        await delay(TRANSIENT_FETCH_RETRY_DELAY_MS);
+        return fetch(url, options);
     }
-    if (base.startsWith("/api/v1")) {
-        return `${API_ORIGIN_URL}${base}`;
-    }
-    return `${API_BASE_URL}${base.startsWith("/") ? base : `/${base}`}`;
 };
 
 const refreshAccessToken = async (): Promise<string> => {
@@ -54,8 +88,12 @@ const refreshAccessToken = async (): Promise<string> => {
 
     const data = await response.json();
     const newAccessToken = data.data.access_token;
+    const newRefreshToken = data.data.refresh_token;
 
     localStorage.setItem("accessToken", newAccessToken);
+    if (newRefreshToken) {
+        localStorage.setItem("refreshToken", newRefreshToken);
+    }
 
     return newAccessToken;
 };
@@ -65,6 +103,7 @@ export const apiFetch = async (
     options: FetchOptions = {}
 ): Promise<Response> => {
     const token = localStorage.getItem("accessToken");
+    const canRetryTransientFetch = isSafeRequestMethod(options.method);
 
     // Add authorization header if token exists
     const headers = {
@@ -73,10 +112,10 @@ export const apiFetch = async (
     };
 
     // Make the initial request
-    let response = await fetch(url, {
+    let response = await fetchWithTransientRetry(url, {
         ...options,
         headers,
-    });
+    }, canRetryTransientFetch);
 
     // If we get a 401, try to refresh the token
     if (response.status === 401) {
@@ -86,13 +125,13 @@ export const apiFetch = async (
                 failedQueue.push({ resolve, reject });
             }).then((newToken) => {
                 // Retry the request with new token
-                return fetch(url, {
+                return fetchWithTransientRetry(url, {
                     ...options,
                     headers: {
                         ...options.headers,
                         Authorization: `Bearer ${newToken}`,
                     },
-                });
+                }, canRetryTransientFetch);
             });
         }
 
@@ -104,24 +143,34 @@ export const apiFetch = async (
             isRefreshing = false;
 
             // Retry the original request with new token
-            response = await fetch(url, {
+            response = await fetchWithTransientRetry(url, {
                 ...options,
                 headers: {
                     ...options.headers,
                     Authorization: `Bearer ${newToken}`,
                 },
-            });
+            }, canRetryTransientFetch);
         } catch (error) {
             processQueue(error as Error, null);
             isRefreshing = false;
 
             // Clear tokens and redirect to login
-            localStorage.removeItem("accessToken");
-            localStorage.removeItem("refreshToken");
-            localStorage.removeItem("userData");
+            clearLocalAuth();
             window.location.href = "/login";
 
             throw error;
+        }
+    }
+
+    if (response.status === 403) {
+        const errorData = await response.clone().json().catch(() => ({}));
+        const detail =
+            errorData && typeof errorData === "object" && "detail" in errorData
+                ? String((errorData as { detail?: unknown }).detail || "")
+                : "";
+        if (detail.toLowerCase().includes("user account is inactive")) {
+            clearLocalAuth();
+            window.location.href = "/login";
         }
     }
 

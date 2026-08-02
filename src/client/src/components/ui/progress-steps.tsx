@@ -1,3 +1,6 @@
+import { Check } from "lucide-react";
+import { cn } from "@/lib/utils";
+
 interface Step {
     id: number;
     name: string;
@@ -9,10 +12,7 @@ interface ThemeColors {
     active: string;
     completed: string;
     inactive: string;
-    text: {
-        active: string;
-        inactive: string;
-    };
+    text: { active: string; inactive: string };
 }
 
 interface ProgressStepsProps {
@@ -27,120 +27,64 @@ interface ProgressStepsProps {
 }
 
 const defaultTheme: ThemeColors = {
-    active: "bg-green-500",
-    completed: "bg-green-500",
-    inactive: "bg-gray-200",
-    text: {
-        active: "text-gray-900",
-        inactive: "text-gray-500",
-    },
+    active: "bg-slate-950",
+    completed: "bg-emerald-600",
+    inactive: "bg-slate-200",
+    text: { active: "text-slate-900", inactive: "text-slate-500" },
 };
 
 const circleSizes = {
-    sm: { className: "w-6 h-6 text-xs", radius: 12 },
-    md: { className: "w-8 h-8 text-sm", radius: 16 },
-    lg: { className: "w-10 h-10 text-base", radius: 20 },
+    sm: "size-6 text-[11px]",
+    md: "size-7 text-xs",
+    lg: "size-9 text-sm",
+};
+
+const stepGridColumns: Record<number, string> = {
+    1: "sm:grid-cols-1",
+    2: "sm:grid-cols-2",
+    3: "sm:grid-cols-3",
+    4: "sm:grid-cols-4",
+    5: "sm:grid-cols-5",
+    6: "sm:grid-cols-6",
 };
 
 export function ProgressSteps({
     steps,
     title,
-    titleClassName = "text-2xl font-semibold text-center mb-8",
-    className = "w-full py-4 mb-8",
-    theme = defaultTheme,
+    titleClassName = "text-lg font-semibold text-slate-950",
+    className,
+    theme = {},
     circleSize = "md",
     showStepNumbers = true,
-    transitionDuration = 300,
 }: ProgressStepsProps) {
-    const completedCount = steps.filter((s) => s.isCompleted).length;
-    const mergedTheme = { ...defaultTheme, ...theme };
-    const circleRadius = circleSizes[circleSize].radius;
+    const mergedTheme = { ...defaultTheme, ...theme, text: { ...defaultTheme.text, ...theme.text } };
 
     return (
-        <div className={className}>
-            {title && <h1 className={titleClassName}>{title}</h1>}
-            <div className="relative" style={{ paddingBottom: "2.5rem" }}>
-                {/* Background line across all steps */}
-                <div
-                    className="absolute h-1 bg-gray-200 rounded-full z-0"
-                    style={{
-                        left: "0%",
-                        right: "0%",
-                        top: `${circleRadius}px`,
-                    }}
-                />
-                {/* Progress line shows completed portion */}
-                <div
-                    className={`absolute h-1 rounded-full z-0 transition-all ${
-                        mergedTheme.completed.startsWith("bg-")
-                            ? mergedTheme.completed
-                            : ""
-                    }`}
-                    style={{
-                        left: "0%",
-                        top: `${circleRadius}px`,
-                        width:
-                            steps.length > 1
-                                ? `${
-                                      (completedCount / (steps.length - 1)) *
-                                      100
-                                  }%`
-                                : "0%",
-                        backgroundColor: mergedTheme.completed.startsWith("bg-")
-                            ? undefined
-                            : mergedTheme.completed,
-                        transitionDuration: `${transitionDuration}ms`,
-                    }}
-                />
-                {/* Circles and labels */}
-                <div className="relative z-10">
-                    {steps.map((step, index) => {
-                        const position =
-                            steps.length > 1
-                                ? (index / (steps.length - 1)) * 100
-                                : 50;
-                        return (
-                            <div
-                                key={step.id}
-                                className="absolute flex flex-col items-center"
-                                style={{
-                                    left: `${position}%`,
-                                    transform: "translateX(-50%)",
-                                }}
-                            >
-                                <div
-                                    className={`${
-                                        circleSizes[circleSize].className
-                                    } rounded-full flex items-center justify-center 
-                                      transition-colors duration-200
-                                      ${
-                                          step.isActive
-                                              ? `${mergedTheme.active} text-white`
-                                              : step.isCompleted
-                                              ? `${mergedTheme.completed} text-white`
-                                              : `${mergedTheme.inactive} ${mergedTheme.text.inactive}`
-                                      }`}
-                                >
-                                    {showStepNumbers ? step.id : ""}
-                                </div>
-                                <span
-                                    className={`mt-2 text-sm font-medium transition-colors duration-200 text-center whitespace-nowrap
-                                        ${
-                                            step.isActive || step.isCompleted
-                                                ? mergedTheme.text.active
-                                                : mergedTheme.text.inactive
-                                        }`}
-                                    style={{
-                                        transitionDuration: `${transitionDuration}ms`,
-                                    }}
-                                >
-                                    {step.name}
-                                </span>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
+        <div className={cn("w-full", className)}>
+            {title ? <h2 className={titleClassName}>{title}</h2> : null}
+            <ol className={cn("mt-4 grid gap-2 sm:gap-0", stepGridColumns[Math.min(Math.max(steps.length, 1), 6)])} aria-label="Form progress">
+                {steps.map((step, index) => (
+                    <li key={step.id} className="relative flex items-center gap-3 sm:flex-col sm:gap-2">
+                        {index > 0 ? (
+                            <span className={cn("absolute hidden h-px w-1/2 -translate-x-full bg-slate-200 sm:left-1/2 sm:top-3.5 sm:block", step.isCompleted || step.isActive ? "bg-emerald-500" : "")} aria-hidden="true" />
+                        ) : null}
+                        {index < steps.length - 1 ? (
+                            <span className={cn("absolute hidden h-px w-1/2 bg-slate-200 sm:left-1/2 sm:top-3.5 sm:block", step.isCompleted ? "bg-emerald-500" : "")} aria-hidden="true" />
+                        ) : null}
+                        <span
+                            className={cn(
+                                "relative z-10 flex shrink-0 items-center justify-center rounded-full font-semibold transition-colors",
+                                circleSizes[circleSize],
+                                step.isCompleted ? `${mergedTheme.completed} text-white` : step.isActive ? `${mergedTheme.active} text-white` : `${mergedTheme.inactive} text-slate-500`
+                            )}
+                            aria-current={step.isActive ? "step" : undefined}
+                        >
+                            {step.isCompleted ? <Check className="size-3.5" /> : showStepNumbers ? step.id : null}
+                        </span>
+                        <span className={cn("text-sm font-medium sm:max-w-28 sm:text-center sm:text-xs", step.isActive || step.isCompleted ? mergedTheme.text.active : mergedTheme.text.inactive)}>{step.name}</span>
+                    </li>
+                ))}
+            </ol>
         </div>
     );
 }

@@ -1,18 +1,13 @@
 "use client";
 
+import { useState } from "react";
+import { Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-    Card,
-    CardHeader,
-    CardTitle,
-    CardDescription,
-    CardContent,
-} from "@/components/ui/card";
-import { useRouter } from "next/navigation";
+import { Notice } from "@/components/ui/workspace";
 import { useAuth } from "@/contexts/AuthContext";
 import { userContext } from "@/contexts/UserContext";
-import { useState } from "react";
 import { buildApiUrl, readApiError } from "@/lib/api-client";
 
 export default function LoginPage() {
@@ -24,38 +19,25 @@ export default function LoginPage() {
     const [loading, setLoading] = useState(false);
     const [redirecting, setRedirecting] = useState(false);
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleSubmit = async (event: React.FormEvent) => {
+        event.preventDefault();
         setError("");
         setLoading(true);
 
         try {
             const response = await fetch(buildApiUrl("/api/v1/auth/login"), {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ email: email.trim().toLowerCase() }),
             });
 
-            if (!response.ok) {
-                throw new Error(await readApiError(response, "Login failed"));
-            }
+            if (!response.ok) throw new Error(await readApiError(response, "Login failed"));
 
-            const response_data = await response.json();
+            const responseData = await response.json();
+            localStorage.setItem("accessToken", responseData.data.access_token);
+            localStorage.setItem("refreshToken", responseData.data.refresh_token);
 
-            // Store tokens
-            localStorage.setItem(
-                "accessToken",
-                response_data.data.access_token
-            );
-            localStorage.setItem(
-                "refreshToken",
-                response_data.data.refresh_token
-            );
-
-            // Extract user data from response
-            const user = response_data.data.user;
+            const user = responseData.data.user;
             setUser({
                 user_id: user.user_id,
                 email: user.email,
@@ -67,15 +49,13 @@ export default function LoginPage() {
 
             login();
             const normalizedRole = user.role?.toLowerCase();
-            const destination =
-                normalizedRole === "instructor" || normalizedRole === "admin"
-                    ? "/dashboard"
-                    : "/discover";
+            const destination = ["student", "instructor", "admin", "academic_advisor", "enrollment_operator", "mentor", "external_partner"].includes(normalizedRole)
+                ? "/dashboard"
+                : "/discover";
             setRedirecting(true);
             router.replace(destination);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Login failed");
-            console.error("Login error:", err);
             setRedirecting(false);
         } finally {
             setLoading(false);
@@ -84,57 +64,41 @@ export default function LoginPage() {
 
     if (redirecting) {
         return (
-            <div className="h-full bg-slate-50 flex items-center justify-center px-4">
-                <div className="text-sm text-slate-600">Opening WatMatch...</div>
-            </div>
+            <main className="flex min-h-[calc(100dvh-4rem)] items-center justify-center bg-[#f7f8fa] px-4" aria-live="polite">
+                <div className="flex items-center gap-2 text-sm font-medium text-slate-600"><Loader2 className="size-4 animate-spin" /> Opening your workspace…</div>
+            </main>
         );
     }
 
     return (
-        <div className="h-full bg-slate-50 flex items-center justify-center px-4">
-            <Card className="w-full max-w-md">
-                <CardHeader>
-                    <CardTitle className="text-2xl">
-                        Login to WatMatch
-                    </CardTitle>
-                    <CardDescription>
-                        Enter your WatMatch email to access your account
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <form className="space-y-4" onSubmit={handleSubmit}>
-                        {error && (
-                            <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
-                                {error}
-                            </div>
-                        )}
-                        <div className="space-y-2">
-                            <label
-                                htmlFor="email"
-                                className="text-sm font-medium"
-                            >
-                                Email
-                            </label>
-                            <Input
-                                id="email"
-                                type="email"
-                                placeholder="student@uwaterloo.ca"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                disabled={loading}
-                                required
-                            />
-                        </div>
-                        <Button
-                            type="submit"
-                            className="w-full"
+        <main className="flex min-h-[calc(100dvh-4rem)] items-center justify-center bg-[#f7f8fa] px-5 py-12 sm:px-8">
+            <section className="wm-panel w-full max-w-md p-6 sm:p-7">
+                <h1 className="text-2xl font-semibold tracking-[-0.025em] text-slate-950">Log in to WatMatch</h1>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Enter the email associated with your WatMatch account.</p>
+
+                <form className="mt-6 space-y-5" onSubmit={handleSubmit}>
+                    {error && <Notice tone="danger" title="Could not log in">{error}</Notice>}
+                    <div className="space-y-2">
+                        <label htmlFor="email" className="text-sm font-medium text-slate-800">Email address</label>
+                        <Input
+                            id="email"
+                            name="email"
+                            type="email"
+                            autoComplete="email"
+                            placeholder="you@uwaterloo.ca"
+                            value={email}
+                            onChange={(event) => setEmail(event.target.value)}
                             disabled={loading}
-                        >
-                            {loading ? "Logging in..." : "Login"}
-                        </Button>
-                    </form>
-                </CardContent>
-            </Card>
-        </div>
+                            required
+                            autoFocus
+                        />
+                    </div>
+                    <Button type="submit" className="w-full" disabled={loading}>
+                        {loading ? <Loader2 className="animate-spin" /> : null}
+                        {loading ? "Logging in…" : "Log in"}
+                    </Button>
+                </form>
+            </section>
+        </main>
     );
 }
