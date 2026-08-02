@@ -59,6 +59,22 @@ begin
   if v_missing is not null then
     raise exception 'Demo seed cannot run. Missing required department(s): %', v_missing;
   end if;
+
+  if to_regprocedure(
+    'public.watmatch_apply_marketplace_commitment(bigint,bigint,bigint,text,text,bigint,text,boolean)'
+  ) is not null then
+    raise exception 'Demo seed cannot run. The legacy marketplace commitment RPC overload is still installed. Re-run db/schema.sql before reseeding.';
+  end if;
+
+  if to_regprocedure(
+    'public.watmatch_apply_marketplace_commitment(bigint,bigint,bigint,text,text,bigint,text,boolean,jsonb)'
+  ) is null then
+    raise exception 'Demo seed cannot run. The current marketplace commitment RPC is missing. Run db/schema.sql before reseeding.';
+  end if;
+
+  if not exists (select 1 from past_capstones) then
+    raise exception 'Demo seed cannot run. No imported historical past_capstones rows were found. Load the past-capstone archive before seeding the Mid 2 demo.';
+  end if;
 end $$;
 
 -- Reset mutable workflow/demo tables. Users are upserted below rather than
@@ -107,6 +123,26 @@ where status in ('approved', 'complete', 'pending_review', 'pending_admin_course
 update teams
 set leader_fk = null
 where leader_fk is not null;
+
+delete from student_past_capstone_shortlists s
+using users u
+where s.student_fk = u.user_id
+  and u.email in (
+    'student.se.leader@uwaterloo.ca',
+    'student.se.member@uwaterloo.ca',
+    'student.se.explorer@uwaterloo.ca',
+    'student.se.direct.leader@uwaterloo.ca',
+    'student.se.direct.candidate@uwaterloo.ca',
+    'student.se.mixed.leader@uwaterloo.ca',
+    'student.se.unsupported@uwaterloo.ca',
+    'student.mte.commit@uwaterloo.ca',
+    'student.mte.review@uwaterloo.ca',
+    'student.nocourse@uwaterloo.ca',
+    'student.syde.final@uwaterloo.ca',
+    'student.se.complete@uwaterloo.ca',
+    'student.bme.partner@uwaterloo.ca',
+    'student.futurecities@uwaterloo.ca'
+  );
 
 truncate table
   audit_log,
@@ -483,7 +519,7 @@ from users u
 join (
   values
     ('student.se.leader@uwaterloo.ca', 'SE project proposer', 'Interested in accessibility and campus operations projects.', array['React', 'Product scoping', 'Interviews'], array['Team lead', 'Frontend'], array['Accessibility', 'Campus tools'], 'Weekdays after 4 PM', 'https://example.org/se-leader', 'https://linkedin.com/in/se-leader-demo', 'https://github.com/se-leader-demo'),
-    ('student.se.member@uwaterloo.ca', 'SE builder', 'Enjoys turning ambiguous project ideas into %usable prototypes.', array['TypeScript', 'APIs', 'Testing'], array['Backend', 'Full stack'], array['Civic tech', 'Developer tools'], 'Flexible', 'https://example.org/se-member', 'https://linkedin.com/in/se-member-demo', 'https://github.com/se-member-demo'),
+    ('student.se.member@uwaterloo.ca', 'SE builder', 'Enjoys building usable prototypes from ambiguous project ideas.', array['TypeScript', 'APIs', 'Testing'], array['Backend', 'Full stack'], array['Civic tech', 'Developer tools'], 'Flexible', 'https://example.org/se-member', 'https://linkedin.com/in/se-member-demo', 'https://github.com/se-member-demo'),
     ('student.se.explorer@uwaterloo.ca', 'Marketplace explorer', 'Looking for projects with user research and measurable impact.', array['UX research', 'Figma', 'React'], array['Research', 'Frontend'], array['Accessibility', 'Education'], 'Mondays and Thursdays', null, null, 'https://github.com/se-explorer-demo'),
     ('student.se.direct.leader@uwaterloo.ca', 'Same-course leader', 'Building a practical scheduling tool for student teams.', array['Next.js', 'SQL', 'Leadership'], array['Team lead'], array['Scheduling', 'Student life'], 'Afternoons', null, null, 'https://github.com/se-direct-leader-demo'),
     ('student.se.direct.candidate@uwaterloo.ca', 'Same-course candidate', 'Strong in frontend polish and QA.', array['React', 'Accessibility testing', 'CSS'], array['Frontend', 'QA'], array['Student tools'], 'Evenings', null, null, 'https://github.com/se-direct-candidate-demo'),
@@ -571,6 +607,7 @@ declare
   v_cap bigint;
   v_team bigint;
   v_exploration bigint;
+  v_count integer;
 begin
   select user_id into v_admin from users where email = 'admin@uwaterloo.ca';
   select user_id into v_advisor from users where email = 'advisor@uwaterloo.ca';
@@ -619,7 +656,7 @@ begin
   select user_id into v_bme_partner from users where email = 'student.bme.partner@uwaterloo.ca';
   select user_id into v_futurecities from users where email = 'student.futurecities@uwaterloo.ca';
 
-  -- Approved recruiting SE project with interest, shortlist, and pending mentor support.
+  -- Approved recruiting SE project with interest, a pending invite, and pending mentor support.
   insert into teams (status, course_fk)
   values ('forming', v_se490)
   returning team_id into v_team;
@@ -683,8 +720,7 @@ begin
   )
   values
     (v_cap, v_team, v_explorer, 'interested', 'student_marketplace', 1, 'Interested in accessibility-focused product work.', v_explorer, null, null),
-    (v_cap, v_team, v_no_course, 'shortlisted', 'leader_invite', 2, 'Shortlisted by the leader, but this student has no enrolled capstone course yet.', v_leader, v_leader, now() - interval '1 day');
-
+    (v_cap, v_team, v_no_course, 'invited', 'team_invite', 2, 'Invited by the leader, but this student has no enrolled capstone course yet.', v_leader, null, null);
   insert into mentor_requests (
     capstone_fk, team_fk, mentor_fk, requested_by_fk, request_source, status, message
   )
@@ -753,7 +789,7 @@ begin
     team_commitment_confirmed_at, team_commitment_confirmed_by_fk
   )
   values (
-    v_cap, v_team, v_direct_candidate, 'exploring', 'student_marketplace',
+    v_cap, v_team, v_direct_candidate, 'exploring', 'project_interest_acceptance',
     'Both the candidate and leader have committed; leader still needs to confirm the final roster.',
     v_direct_candidate, v_direct_leader, now() - interval '2 days',
     now() - interval '1 day', v_direct_candidate,
@@ -1211,6 +1247,227 @@ begin
   set active_team_fk = tm.team_fk
   from team_memberships tm
   where u.user_id = tm.user_fk;
+
+  -- Validate the complete initial demo contract before committing. Any mismatch
+  -- aborts the transaction so a failed seed never leaves a partial demo state.
+  select count(*) into v_count from capstones;
+  if v_count <> 9 then
+    raise exception 'Demo seed invariant failed: expected 9 capstones, found %.', v_count;
+  end if;
+
+  select count(*) into v_count from teams;
+  if v_count <> 9 then
+    raise exception 'Demo seed invariant failed: expected 9 teams, found %.', v_count;
+  end if;
+
+  select count(*) into v_count from team_memberships;
+  if v_count <> 10 then
+    raise exception 'Demo seed invariant failed: expected 10 official memberships, found %.', v_count;
+  end if;
+
+  select count(*) into v_count from project_explorations;
+  if v_count <> 4 then
+    raise exception 'Demo seed invariant failed: expected 4 marketplace relationships, found %.', v_count;
+  end if;
+
+  select count(*) into v_count from partner_opportunities;
+  if v_count <> 2 then
+    raise exception 'Demo seed invariant failed: expected 2 partner opportunities, found %.', v_count;
+  end if;
+
+  if exists (
+    select 1
+    from teams t
+    left join team_memberships tm
+      on tm.team_fk = t.team_id
+     and tm.user_fk = t.leader_fk
+     and tm.is_leader is true
+    where t.leader_fk is null
+       or tm.user_fk is null
+  ) then
+    raise exception 'Demo seed invariant failed: every team leader must be an official leader membership.';
+  end if;
+
+  if exists (
+    select 1
+    from team_memberships tm
+    group by tm.team_fk
+    having count(*) filter (where tm.is_leader is true) <> 1
+  ) then
+    raise exception 'Demo seed invariant failed: every team must have exactly one leader membership.';
+  end if;
+
+  if exists (
+    select 1
+    from capstones c
+    join teams t on t.team_id = c.team_fk
+    where t.capstone_fk is distinct from c.capstone_id
+       or t.course_fk is distinct from c.course_fk
+  ) then
+    raise exception 'Demo seed invariant failed: capstone/team links or coordinating courses are inconsistent.';
+  end if;
+
+  if exists (
+    select 1
+    from users u
+    left join team_memberships tm on tm.user_fk = u.user_id
+    where u.email in (
+      'student.se.leader@uwaterloo.ca',
+      'student.se.member@uwaterloo.ca',
+      'student.se.explorer@uwaterloo.ca',
+      'student.se.direct.leader@uwaterloo.ca',
+      'student.se.direct.candidate@uwaterloo.ca',
+      'student.se.mixed.leader@uwaterloo.ca',
+      'student.se.unsupported@uwaterloo.ca',
+      'student.mte.commit@uwaterloo.ca',
+      'student.mte.review@uwaterloo.ca',
+      'student.nocourse@uwaterloo.ca',
+      'student.syde.final@uwaterloo.ca',
+      'student.se.complete@uwaterloo.ca',
+      'student.bme.partner@uwaterloo.ca',
+      'student.futurecities@uwaterloo.ca'
+    )
+    group by u.user_id, u.active_team_fk
+    having u.active_team_fk is distinct from max(tm.team_fk)
+  ) then
+    raise exception 'Demo seed invariant failed: users.active_team_fk must match official team membership.';
+  end if;
+
+  perform watmatch_assert_team_members_valid(t.team_id)
+  from teams t;
+
+  if not exists (
+    select 1
+    from capstones c
+    join project_explorations pe on pe.capstone_fk = c.capstone_id
+    join users u on u.user_id = pe.student_fk
+    where c.title = 'Campus Accessibility Navigator'
+      and u.email = 'student.se.explorer@uwaterloo.ca'
+      and pe.status = 'interested'
+      and pe.source = 'student_marketplace'
+      and pe.student_commitment_confirmed_at is null
+      and pe.team_commitment_confirmed_at is null
+      and not exists (
+        select 1 from team_memberships tm where tm.user_fk = u.user_id
+      )
+  ) then
+    raise exception 'Demo seed invariant failed: Campus explorer must start as interested and unofficial.';
+  end if;
+
+  if not exists (
+    select 1
+    from capstones c
+    join project_explorations pe on pe.capstone_fk = c.capstone_id
+    join users u on u.user_id = pe.student_fk
+    where c.title = 'Campus Accessibility Navigator'
+      and u.email = 'student.nocourse@uwaterloo.ca'
+      and pe.status = 'invited'
+      and pe.source = 'team_invite'
+      and pe.decided_by_fk is null
+      and pe.decided_at is null
+  ) then
+    raise exception 'Demo seed invariant failed: Campus must include one unresolved team invite.';
+  end if;
+
+  if not exists (
+    select 1
+    from capstones c
+    join mentor_requests mr on mr.capstone_fk = c.capstone_id
+    join users u on u.user_id = mr.mentor_fk
+    where c.title = 'Campus Accessibility Navigator'
+      and u.email = 'mentor.lee@uwaterloo.ca'
+      and mr.status = 'pending'
+      and mr.decided_by_fk is null
+      and mr.decided_at is null
+  ) then
+    raise exception 'Demo seed invariant failed: Campus mentor request must be pending.';
+  end if;
+
+  if not exists (
+    select 1
+    from capstones c
+    join teams t on t.team_id = c.team_fk
+    join project_explorations pe on pe.capstone_fk = c.capstone_id
+    join users u on u.user_id = pe.student_fk
+    where c.title = 'Peer Study Room Finder'
+      and u.email = 'student.se.direct.candidate@uwaterloo.ca'
+      and pe.status = 'exploring'
+      and pe.source = 'project_interest_acceptance'
+      and pe.student_commitment_confirmed_at is not null
+      and pe.team_commitment_confirmed_at is not null
+      and t.commitment_roster_confirmed_at is null
+  ) then
+    raise exception 'Demo seed invariant failed: same-course candidate must be mutually confirmed before roster submission.';
+  end if;
+
+  if not exists (
+    select 1
+    from capstones c
+    join capstone_course_approvals cca on cca.capstone_fk = c.capstone_id
+    where c.title = 'Clinical Flow Simulator'
+      and c.status = 'pending_review'
+      and c.approval is false
+      and cca.status = 'pending'
+  ) then
+    raise exception 'Demo seed invariant failed: Clinical Flow Simulator must await instructor review.';
+  end if;
+
+  if not exists (
+    select 1
+    from capstones c
+    join partner_opportunities po on po.partner_opportunity_id = c.partner_opportunity_fk
+    where c.title = 'Hospital Scheduling Optimizer - BME Proposal'
+      and c.status = 'pending_review'
+      and c.external_partner_support_confirmed is true
+      and po.title = 'Hospital Scheduling Optimizer'
+      and po.status = 'published'
+  ) then
+    raise exception 'Demo seed invariant failed: BME proposal must retain published partner context and confirmed support.';
+  end if;
+
+  if not exists (
+    select 1
+    from capstones c
+    where c.title = 'Unsupported Finalization Blocker'
+      and coalesce((watmatch_capstone_support_summary(c.capstone_id) ->> 'requires_project_support')::boolean, false) is true
+      and coalesce((watmatch_capstone_support_summary(c.capstone_id) ->> 'has_support')::boolean, false) is false
+  ) then
+    raise exception 'Demo seed invariant failed: finalization blocker must require and lack project support.';
+  end if;
+
+  if not exists (
+    select 1
+    from capstones c
+    join teams t on t.team_id = c.team_fk
+    where c.title = 'Transit Equity Scenario Planner'
+      and c.status = 'approved'
+      and c.approval is true
+      and t.status = 'finalized'
+  ) then
+    raise exception 'Demo seed invariant failed: Transit Equity Scenario Planner must be finalized.';
+  end if;
+
+  if not exists (
+    select 1
+    from capstones c
+    join teams t on t.team_id = c.team_fk
+    where c.title = 'Clinic Intake Triage Dashboard'
+      and c.status = 'complete'
+      and c.approval is true
+      and c.completed_at is not null
+      and t.status = 'finalized'
+  ) then
+    raise exception 'Demo seed invariant failed: Clinic Intake Triage Dashboard must be complete.';
+  end if;
+
+  if exists (
+    select 1
+    from student_past_capstone_shortlists s
+    join users u on u.user_id = s.student_fk
+    where u.email = 'student.se.explorer@uwaterloo.ca'
+  ) then
+    raise exception 'Demo seed invariant failed: the explorer must start without saved past capstones.';
+  end if;
 
   insert into audit_log (actor_fk, actor_role, action, entity_type, entity_id, reason, metadata)
   values (
