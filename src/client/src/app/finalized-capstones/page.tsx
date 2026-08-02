@@ -13,9 +13,22 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import { userContext } from "@/contexts/UserContext";
 import { useFinalizedCapstones } from "@/hooks/useCapstones";
 import { offerMentor } from "@/services/capstones.service";
-import { CapstoneCard } from "@/app/discover/CapstoneCard";
+import { CapstoneCard } from "@/components/capstones/CapstoneCard";
 import { CapstoneModal } from "@/app/discover/CapstoneModal";
 import { MessageModal } from "@/app/discover/MessageModal";
+import {
+    BrowseClearButton,
+    BrowseEmpty,
+    BrowseLoading,
+    BrowseNotice,
+    BrowsePageHeader,
+    BrowsePageShell,
+    BrowseToolbar,
+    PaginationBar,
+    ResultsSummary,
+} from "@/components/capstones/BrowsePage";
+import { Button } from "@/components/ui/button";
+import { Search } from "lucide-react";
 
 function FinalizedCapstonesContent() {
     const [search, setSearch] = useState("");
@@ -52,10 +65,11 @@ function FinalizedCapstonesContent() {
     });
 
     useEffect(() => {
-        if (homeDepartmentName && dept === "All") {
-            setDept(homeDepartmentName);
-        }
-    }, [dept, homeDepartmentName]);
+        if (!homeDepartmentName) return;
+        setDept((currentDepartment) =>
+            currentDepartment === "All" ? homeDepartmentName : currentDepartment
+        );
+    }, [homeDepartmentName]);
 
     useEffect(() => {
         setPage(1);
@@ -119,48 +133,47 @@ function FinalizedCapstonesContent() {
         }
     };
 
-    return (
-        <div className="min-h-full bg-slate-50 px-2 py-4 sm:px-4">
-            <div className="mx-auto mb-4 w-full max-w-6xl">
-                <div className="mb-4">
-                    <h1 className="text-2xl font-semibold text-slate-900">
-                        Finalized Projects
-                    </h1>
-                    <p className="mt-1 text-sm text-slate-600">
-                        Browse live finalized and completed capstones before they move into the past archive.
-                    </p>
-                </div>
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(16rem,1fr)_minmax(12rem,260px)_minmax(8rem,150px)] xl:items-center">
-                    <Input
-                        placeholder="Search finalized or completed projects..."
-                        value={search}
-                        onChange={(event) => setSearch(event.target.value)}
-                        className="min-w-0"
-                    />
+    const hasActiveFilters = search.trim() !== "" || dept !== "All" || year !== "All";
 
+    return (
+        <BrowsePageShell>
+            <BrowsePageHeader
+                eyebrow="Read-only project archive"
+                title="Finalized projects"
+                description="Browse current finalized and academically completed WatMatch projects. Student rosters and project membership cannot be changed here."
+            />
+
+            <BrowseToolbar>
+                <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-[minmax(16rem,1fr)_minmax(12rem,260px)_minmax(8rem,160px)_auto] xl:items-center">
+                    <label className="relative min-w-0">
+                        <span className="sr-only">Search finalized projects</span>
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                        <Input
+                            placeholder="Search finalized projects"
+                            value={search}
+                            onChange={(event) => setSearch(event.target.value)}
+                            className="min-w-0 pl-9"
+                        />
+                    </label>
                     <Select value={dept} onValueChange={setDept}>
-                        <SelectTrigger className="w-full min-w-0">
-                            <SelectValue placeholder="Filter by department" />
+                        <SelectTrigger className="w-full min-w-0" aria-label="Filter by department">
+                            <SelectValue placeholder="Department" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="All">All Departments</SelectItem>
+                            <SelectItem value="All">All departments</SelectItem>
                             {departments.map((department, index) => (
-                                <SelectItem
-                                    key={`dept-${index}-${department}`}
-                                    value={department}
-                                >
+                                <SelectItem key={`dept-${index}-${department}`} value={department}>
                                     {department}
                                 </SelectItem>
                             ))}
                         </SelectContent>
                     </Select>
-
                     <Select value={year} onValueChange={setYear}>
-                        <SelectTrigger className="w-full min-w-0">
-                            <SelectValue placeholder="Filter by year" />
+                        <SelectTrigger className="w-full min-w-0" aria-label="Filter by year">
+                            <SelectValue placeholder="Year" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="All">All Years</SelectItem>
+                            <SelectItem value="All">All years</SelectItem>
                             {years.map((option, index) => (
                                 <SelectItem key={`year-${index}-${option}`} value={option}>
                                     {option}
@@ -168,30 +181,44 @@ function FinalizedCapstonesContent() {
                             ))}
                         </SelectContent>
                     </Select>
+                    <BrowseClearButton
+                        active={hasActiveFilters}
+                        onClear={() => {
+                            setSearch("");
+                            setDept("All");
+                            setYear("All");
+                        }}
+                    />
                 </div>
-            </div>
+            </BrowseToolbar>
 
-            {error && (
-                <p className="mx-auto mb-3 w-full max-w-6xl break-words rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    {error}
-                </p>
-            )}
+            {error && <BrowseNotice tone="error">{error}</BrowseNotice>}
             {mentorOfferMessage && (
-                <p
-                    className={`mx-auto mb-3 w-full max-w-6xl break-words rounded-md border px-4 py-3 text-sm ${
+                <BrowseNotice
+                    tone={
                         mentorOfferMessage.toLowerCase().includes("could not") ||
                         mentorOfferMessage.toLowerCase().includes("failed")
-                            ? "border-red-200 bg-red-50 text-red-700"
-                            : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    }`}
+                            ? "error"
+                            : "success"
+                    }
                 >
                     {mentorOfferMessage}
-                </p>
+                </BrowseNotice>
             )}
 
-            <div className="mx-auto w-full max-w-6xl space-y-3 pb-2">
+            {!isLoading && (
+                <ResultsSummary
+                    count={projects.length}
+                    singular="project"
+                    page={page}
+                    totalPages={totalPages}
+                    detail="Finalized projects are read-only for students."
+                />
+            )}
+
+            <section className="space-y-3" aria-label="Finalized project results">
                 {isLoading ? (
-                    <p className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">Loading finalized projects...</p>
+                    <BrowseLoading label="Loading finalized projects…" />
                 ) : projects.length ? (
                     projects.map((project) => (
                         <CapstoneCard
@@ -206,31 +233,36 @@ function FinalizedCapstonesContent() {
                         />
                     ))
                 ) : (
-                    <p className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
-                        No finalized or completed projects match your filters.
-                    </p>
+                    <BrowseEmpty
+                        title="No finalized projects found"
+                        description="Try a broader search or clear one of the filters above."
+                        action={
+                            hasActiveFilters ? (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                        setSearch("");
+                                        setDept("All");
+                                        setYear("All");
+                                    }}
+                                >
+                                    Clear filters
+                                </Button>
+                            ) : undefined
+                        }
+                    />
                 )}
-            </div>
+            </section>
 
-            <div className="mt-4 flex flex-col items-center justify-center gap-3 pb-2 sm:flex-row">
-                <button
-                    onClick={() => setPage((previous) => Math.max(1, previous - 1))}
-                    disabled={page === 1 || isLoading}
-                    className="w-full rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-50 sm:w-auto sm:min-w-28"
-                >
-                    Previous
-                </button>
-                <span className="text-sm text-slate-600">
-                    Page {page} of {totalPages}
-                </span>
-                <button
-                    onClick={() => setPage((previous) => Math.min(totalPages, previous + 1))}
-                    disabled={page >= totalPages || isLoading}
-                    className="w-full rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-50 sm:w-auto sm:min-w-28"
-                >
-                    Next
-                </button>
-            </div>
+            <PaginationBar
+                page={page}
+                totalPages={totalPages}
+                loading={isLoading}
+                onPrevious={() => setPage((previous) => Math.max(1, previous - 1))}
+                onNext={() => setPage((previous) => Math.min(totalPages, previous + 1))}
+            />
 
             <CapstoneModal
                 project={selectedProject}
@@ -261,7 +293,7 @@ function FinalizedCapstonesContent() {
                 isSubmitting={mentorOfferSubmitting}
                 submitLabel="Send Offer"
             />
-        </div>
+        </BrowsePageShell>
     );
 }
 
