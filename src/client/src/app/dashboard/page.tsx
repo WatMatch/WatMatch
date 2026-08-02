@@ -4,6 +4,12 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import { userContext } from "@/contexts/UserContext";
 import { InstructorDashboard } from "./components/InstructorDashboard";
 import { StudentDashboard } from "./components/StudentDashboard";
+import { ExternalPartnerDashboard } from "./components/ExternalPartnerDashboard";
+import { AcademicAdvisorDashboard } from "./components/AcademicAdvisorDashboard";
+import { MentorDashboard } from "./components/MentorDashboard";
+import { EnrollmentOperatorDashboard } from "./components/EnrollmentOperatorDashboard";
+import { ShieldAlert } from "lucide-react";
+import { EmptyState, PageShell } from "@/components/ui/workspace";
 
 function DashboardContent() {
     const { user } = userContext();
@@ -11,6 +17,10 @@ function DashboardContent() {
     const isInstructor = normalizedRole === "instructor";
     const isAdmin = normalizedRole === "admin";
     const isStudent = normalizedRole === "student";
+    const isExternalPartner = normalizedRole === "external_partner";
+    const isAcademicAdvisor = normalizedRole === "academic_advisor";
+    const isEnrollmentOperator = normalizedRole === "enrollment_operator";
+    const isMentor = normalizedRole === "mentor";
 
     if (isInstructor || isAdmin) {
         return <InstructorDashboard />;
@@ -20,17 +30,26 @@ function DashboardContent() {
         return <StudentDashboard />;
     }
 
+    if (isExternalPartner) {
+        return <ExternalPartnerDashboard />;
+    }
+
+    if (isAcademicAdvisor) {
+        return <AcademicAdvisorDashboard />;
+    }
+
+    if (isEnrollmentOperator) {
+        return <EnrollmentOperatorDashboard />;
+    }
+
+    if (isMentor) {
+        return <MentorDashboard />;
+    }
+
     return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center px-8">
-            <div className="max-w-lg text-center space-y-3">
-                <h2 className="text-2xl font-semibold text-slate-900">
-                    Access Restricted
-                </h2>
-                <p className="text-slate-600">
-                    This dashboard is not available for your role.
-                </p>
-            </div>
-        </div>
+        <PageShell className="flex min-h-[28rem] items-center justify-center">
+            <EmptyState icon={ShieldAlert} title="Dashboard unavailable" description="Your current role does not have a dashboard workspace." className="w-full max-w-lg" />
+        </PageShell>
     );
 }
 

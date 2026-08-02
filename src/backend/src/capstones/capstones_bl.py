@@ -856,16 +856,101 @@ class CapstonesBusinessLogic:
         except Exception as e:
             return {"success": False, "message": f"Business logic error: {str(e)}", "data": None}
 
+    def _mentor_dashboard_public_status(
+        self,
+        capstone: Dict[str, Any],
+        request: Dict[str, Any],
+    ) -> Optional[str]:
+        status = str(capstone.get("status") or "").lower()
+        if status == "approved_recruiting":
+            return "recruiting"
+        if status == "complete":
+            return "complete"
+        team = request.get("team")
+        if isinstance(team, dict) and str(team.get("status") or "").lower() == "finalized":
+            return "finalized"
+        return capstone.get("public_status") or capstone.get("status")
+
+    def _enrich_mentor_dashboard_capstones(
+        self,
+        result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Merge full capstone records into mentor dashboard RPC payloads.
+
+        Older deployed RPC bodies only return capstone_id/title/status. Keep this
+        fallback so mentor decisions always have the same detail level as Discover.
+        """
+        data = result.get("data")
+        if not isinstance(data, dict):
+            return result
+
+        capstone_cache: Dict[int, Dict[str, Any]] = {}
+
+        def hydrate_request(request: Dict[str, Any]) -> None:
+            if not isinstance(request, dict):
+                return
+
+            current = request.get("capstone")
+            current_capstone = current if isinstance(current, dict) else {}
+            capstone_id = current_capstone.get("capstone_id") or request.get("capstone_fk")
+            try:
+                normalized_id = int(capstone_id)
+            except (TypeError, ValueError):
+                return
+
+            if normalized_id not in capstone_cache:
+                raw_capstone = self.capstones_data.get_capstone_by_id(normalized_id)
+                capstone_cache[normalized_id] = (
+                    self._process_capstone_data(raw_capstone)
+                    if raw_capstone
+                    else {}
+                )
+
+            if not capstone_cache[normalized_id]:
+                return
+
+            enriched = dict(capstone_cache[normalized_id])
+            for key, value in current_capstone.items():
+                if value is not None:
+                    enriched[key] = value
+
+            departments = enriched.get("departments")
+            if not enriched.get("department") and isinstance(departments, list):
+                department_names = [
+                    department.get("name")
+                    for department in departments
+                    if isinstance(department, dict) and department.get("name")
+                ]
+                if department_names:
+                    enriched["department"] = ", ".join(department_names)
+
+            if not enriched.get("public_status"):
+                enriched["public_status"] = self._mentor_dashboard_public_status(
+                    enriched,
+                    request,
+                )
+
+            request["capstone"] = enriched
+
+        for key in ("pending_requests", "accepted_projects", "offers"):
+            rows = data.get(key)
+            if isinstance(rows, list):
+                for request in rows:
+                    hydrate_request(request)
+
+        return result
+
     def get_mentor_dashboard(
         self,
         actor_id: int,
         actor_role: str,
     ) -> Dict[str, Any]:
         try:
-            return self.capstones_data.get_mentor_dashboard_rpc(
+            result = self.capstones_data.get_mentor_dashboard_rpc(
                 actor_id=actor_id,
                 actor_role=actor_role or "",
             )
+            return self._enrich_mentor_dashboard_capstones(result)
         except Exception as e:
             return {"success": False, "message": f"Business logic error: {str(e)}", "data": None}
 

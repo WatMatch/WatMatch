@@ -441,32 +441,326 @@ class TeamsBusinessLogic:
         processed["source"] = "watmatch-server"
         return processed
 
+    def get_capstone_team_context(
+        self,
+        capstone_id: int,
+        actor_id: int,
+        actor_role: str,
+    ) -> Dict[str, Any]:
+        """Return the canonical, read-only team context for a capstone."""
+        try:
+            capstone = self.capstones_data.get_capstone_by_id(capstone_id)
+            if not capstone:
+                return {"success": False, "message": "Capstone not found", "data": None}
+
+            team_id = capstone.get("team_fk")
+            if team_id is None:
+                return {"success": False, "message": "Capstone team not found", "data": None}
+
+            team = self.teams_data.get_team_by_id(int(team_id))
+            if not team:
+                return {"success": False, "message": "Capstone team not found", "data": None}
+
+            member_ids = get_team_member_ids(int(team_id), fallback_team=team)
+            role = (actor_role or "").strip().lower()
+            is_member = int(actor_id) in set(member_ids)
+            is_leader = int(team.get("leader_fk") or 0) == int(actor_id)
+            is_admin = role == "admin"
+            is_routing_staff = role in {"academic_advisor", "enrollment_operator"}
+            is_scoped_instructor = (
+                self._is_instructor_scoped_to_capstone(
+                    actor_id=int(actor_id),
+                    capstone=capstone,
+                    team=team,
+                )
+                if role == "instructor"
+                else False
+            )
+
+            can_view = (
+                (role == "student" and is_member)
+                or is_admin
+                or is_routing_staff
+                or is_scoped_instructor
+            )
+            if not can_view:
+                return {
+                    "success": False,
+                    "message": "Forbidden. Official team membership or scoped staff access required.",
+                    "data": None,
+                }
+
+            members = self._get_team_member_details(int(team_id), member_ids)
+            leader_id = int(team.get("leader_fk")) if team.get("leader_fk") is not None else None
+            for member in members:
+                member_id = member.get("user_id")
+                member["is_leader"] = (
+                    leader_id is not None
+                    and member_id is not None
+                    and int(member_id) == leader_id
+                )
+
+            support_response = supabase.rpc(
+                "watmatch_capstone_support_summary",
+                {"p_capstone_id": int(capstone_id)},
+            ).execute()
+            support_summary = support_response.data or {}
+            readiness_counts = self._get_finalization_readiness_facts(int(team_id))
+            readiness_items = self._build_finalization_readiness_items(
+                capstone=capstone,
+                team=team,
+                members=members,
+                support_summary=support_summary,
+                readiness_counts=readiness_counts,
+            )
+            ready_count = sum(1 for item in readiness_items if item["ready"])
+
+            can_manage = is_admin or is_scoped_instructor or (role == "student" and is_leader)
+            return {
+                "success": True,
+                "message": "Capstone team context retrieved successfully",
+                "data": {
+                    "team_id": int(team_id),
+                    "capstone_id": int(capstone_id),
+                    "team_status": team.get("status"),
+                    "leader_fk": leader_id,
+                    "project": {
+                        "capstone_id": int(capstone_id),
+                        "title": capstone.get("title"),
+                        "description": capstone.get("description"),
+                        "status": capstone.get("status"),
+                        "course_fk": capstone.get("course_fk") or team.get("course_fk"),
+                        "marketplace_phase": capstone.get("marketplace_phase"),
+                    },
+                    "members": members,
+                    "readiness": {
+                        "ready": ready_count == len(readiness_items),
+                        "ready_count": ready_count,
+                        "total_count": len(readiness_items),
+                        "items": readiness_items,
+                        **readiness_counts,
+                    },
+                    "support_summary": support_summary,
+                    "capabilities": {
+                        "is_official_member": is_member,
+                        "is_leader": is_leader,
+                        "can_manage_roster": can_manage,
+                        "can_manage_support": can_manage,
+                        "can_submit_roster": role == "student" and is_leader,
+                        "can_finalize": can_manage,
+                    },
+                },
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Business logic error: {str(e)}",
+                "data": None,
+            }
+
+    def _is_instructor_scoped_to_capstone(
+        self,
+        actor_id: int,
+        capstone: Dict[str, Any],
+        team: Dict[str, Any],
+    ) -> bool:
+        actor_course_fk = get_user_course_fk(actor_id)
+        if actor_course_fk is None:
+            return False
+        scoped_course_ids = {
+            int(course_id)
+            for course_id in (team.get("course_fk"), capstone.get("course_fk"))
+            if course_id is not None
+        }
+        if int(actor_course_fk) in scoped_course_ids:
+            return True
+        approval = (
+            supabase.table("capstone_course_approvals")
+            .select("capstone_course_approval_id")
+            .eq("capstone_fk", capstone.get("capstone_id"))
+            .eq("course_fk", actor_course_fk)
+            .limit(1)
+            .execute()
+        )
+        return bool(approval.data)
+
+    def _build_finalization_readiness_items(
+        self,
+        capstone: Dict[str, Any],
+        team: Dict[str, Any],
+        members: List[Dict[str, Any]],
+        support_summary: Dict[str, Any],
+        readiness_counts: Dict[str, int],
+    ) -> List[Dict[str, Any]]:
+        project_status = str(capstone.get("status") or "").lower()
+        approval_ready = project_status in {"approved_recruiting", "approved", "complete"}
+        support_required = support_summary.get("requires_project_support") is not False
+        support_ready = not support_required or support_summary.get("has_support") is True
+        pending_routing = int(readiness_counts.get("pending_commitment_request_count") or 0)
+        unresolved_explorations = int(
+            readiness_counts.get("mutually_confirmed_exploration_count") or 0
+        )
+        leader_fk = team.get("leader_fk")
+        member_ids = {
+            int(member["user_id"])
+            for member in members
+            if member.get("user_id") is not None
+        }
+        identity_ready = bool(members) and leader_fk is not None and int(leader_fk) in member_ids
+
+        enrollment_course_ids: List[int] = []
+        enrollment_courses: List[Dict[str, Any]] = []
+        for member in members:
+            course = member.get("enrollment_course") or member.get("course") or {}
+            course_id = (
+                member.get("enrollment_course_fk")
+                or course.get("course_id")
+                or member.get("course_fk")
+            )
+            if course_id is not None:
+                enrollment_course_ids.append(int(course_id))
+                enrollment_courses.append(course)
+
+        staffed_course_ids = set()
+        if enrollment_course_ids:
+            instructor_rows = (
+                supabase.table("users")
+                .select("course_fk")
+                .eq("role", "instructor")
+                .eq("active", True)
+                .in_("course_fk", sorted(set(enrollment_course_ids)))
+                .execute()
+                .data
+                or []
+            )
+            staffed_course_ids = {
+                int(row["course_fk"])
+                for row in instructor_rows
+                if row.get("course_fk") is not None
+            }
+        enrollment_ready = (
+            bool(members)
+            and len(enrollment_course_ids) == len(members)
+            and all(course.get("active") is not False for course in enrollment_courses)
+            and all(course_id in staffed_course_ids for course_id in enrollment_course_ids)
+        )
+
+        return [
+            {
+                "key": "instructor_approval",
+                "label": (
+                    "Instructor approval complete"
+                    if approval_ready
+                    else "Instructor approval required"
+                ),
+                "ready": approval_ready,
+                "detail": (
+                    "Instructor review has approved this project."
+                    if approval_ready
+                    else "Instructor approval is still required."
+                ),
+            },
+            {
+                "key": "project_support",
+                "label": (
+                    "Required support confirmed"
+                    if support_ready
+                    else "Required support missing"
+                ),
+                "ready": support_ready,
+                "detail": (
+                    "Mentor or external partner support is attached, or support is optional."
+                    if support_ready
+                    else "An accepted mentor or confirmed external partner is still required."
+                ),
+            },
+            {
+                "key": "staff_routing",
+                "label": (
+                    "No pending staff routing"
+                    if pending_routing == 0
+                    else "Staff routing required"
+                ),
+                "ready": pending_routing == 0,
+                "detail": (
+                    "No commitment routing is waiting on staff."
+                    if pending_routing == 0
+                    else f"{pending_routing} commitment routing item{'s' if pending_routing != 1 else ''} remain."
+                ),
+            },
+            {
+                "key": "confirmed_explorations",
+                "label": (
+                    "No unresolved commitments"
+                    if unresolved_explorations == 0
+                    else "Commitments need resolution"
+                ),
+                "ready": unresolved_explorations == 0,
+                "detail": (
+                    "No mutually confirmed exploration is awaiting resolution."
+                    if unresolved_explorations == 0
+                    else "Resolve mutually confirmed explorations before finalization."
+                ),
+            },
+            {
+                "key": "team_identity",
+                "label": (
+                    "Team identity valid"
+                    if identity_ready
+                    else "Team identity incomplete"
+                ),
+                "ready": identity_ready,
+                "detail": (
+                    "The official roster includes a team leader."
+                    if identity_ready
+                    else "The official roster needs at least one member and a valid leader."
+                ),
+            },
+            {
+                "key": "official_enrollment",
+                "label": (
+                    "Official enrollment recorded"
+                    if enrollment_ready
+                    else "Enrollment records incomplete"
+                ),
+                "ready": enrollment_ready,
+                "detail": (
+                    "Every official member has an active, staffed enrollment course."
+                    if enrollment_ready
+                    else "Every official member needs an active, staffed enrollment course."
+                ),
+            },
+        ]
+
+    def _get_finalization_readiness_facts(self, team_id: int) -> Dict[str, int]:
+        pending_commitments = (
+            supabase.table("project_commitment_requests")
+            .select("commitment_request_id", count="exact")
+            .eq("team_fk", team_id)
+            .eq("status", "pending")
+            .execute()
+        )
+        pending_explorations = (
+            supabase.table("project_explorations")
+            .select("exploration_id,student_commitment_confirmed_at,team_commitment_confirmed_at")
+            .eq("team_fk", team_id)
+            .in_("status", ["exploring", "pending_commitment"])
+            .execute()
+        )
+        mutually_confirmed_count = sum(
+            1
+            for row in (pending_explorations.data or [])
+            if row.get("student_commitment_confirmed_at")
+            and row.get("team_commitment_confirmed_at")
+        )
+        return {
+            "pending_commitment_request_count": int(getattr(pending_commitments, "count", 0) or 0),
+            "mutually_confirmed_exploration_count": mutually_confirmed_count,
+        }
+
     def _get_finalization_readiness_counts(self, team_id: int) -> Dict[str, int]:
         try:
-            pending_commitments = (
-                supabase.table("project_commitment_requests")
-                .select("commitment_request_id", count="exact")
-                .eq("team_fk", team_id)
-                .eq("status", "pending")
-                .execute()
-            )
-            pending_explorations = (
-                supabase.table("project_explorations")
-                .select("exploration_id,student_commitment_confirmed_at,team_commitment_confirmed_at")
-                .eq("team_fk", team_id)
-                .in_("status", ["exploring", "pending_commitment"])
-                .execute()
-            )
-            mutually_confirmed_count = sum(
-                1
-                for row in (pending_explorations.data or [])
-                if row.get("student_commitment_confirmed_at")
-                and row.get("team_commitment_confirmed_at")
-            )
-            return {
-                "pending_commitment_request_count": int(getattr(pending_commitments, "count", 0) or 0),
-                "mutually_confirmed_exploration_count": mutually_confirmed_count,
-            }
+            return self._get_finalization_readiness_facts(team_id)
         except Exception:
             return {
                 "pending_commitment_request_count": 0,
