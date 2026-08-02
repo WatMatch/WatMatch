@@ -331,6 +331,19 @@ create table if not exists past_watmatch_capstones (
   created_at timestamp default now()
 );
 
+-- Native archive rows are public inspiration records. Remove legacy identity
+-- values and raw workflow snapshots that predate the public-safe projection.
+update past_watmatch_capstones
+set students = '{}'::text[],
+    mentor_name = case
+      when position('@' in coalesce(mentor_name, '')) > 0 then null
+      else mentor_name
+    end,
+    snapshot = '{}'::jsonb
+where cardinality(coalesce(students, '{}'::text[])) > 0
+   or position('@' in coalesce(mentor_name, '')) > 0
+   or coalesce(snapshot, '{}'::jsonb) ?| array['capstone', 'team', 'members', 'support_summary'];
+
 create table if not exists student_past_capstone_shortlists (
   shortlist_id bigint generated always as identity primary key,
   student_fk bigint not null references users(user_id) on delete cascade,
@@ -3241,7 +3254,28 @@ begin
 
   with filtered as (
     select
-      p.*,
+      p.past_watmatch_capstone_id,
+      p.title,
+      p.description,
+      p.department,
+      p.year,
+      '{}'::text[] as students,
+      p.source_fk,
+      p.completed_term,
+      p.project_start_date,
+      p.problem_area,
+      p.main_objectives,
+      p.scope_of_work,
+      p.deliverables,
+      p.deliverable_types,
+      p.skills,
+      case
+        when position('@' in coalesce(p.mentor_name, '')) > 0 then null
+        else nullif(btrim(p.mentor_name), '')
+      end as mentor_name,
+      p.external_partner_name,
+      p.external_partner_organization,
+      p.created_at,
       (s.shortlist_id is not null) as is_shortlisted,
       s.created_at as shortlisted_at
     from past_watmatch_capstones p
@@ -3561,12 +3595,15 @@ begin
       p.description,
       p.department,
       p.year,
-      p.students,
+      '{}'::text[] as students,
       p.source_fk,
       p.completed_term,
       p.skills,
       p.deliverable_types,
-      p.mentor_name,
+      case
+        when position('@' in coalesce(p.mentor_name, '')) > 0 then null
+        else nullif(btrim(p.mentor_name), '')
+      end as mentor_name,
       p.external_partner_name,
       p.external_partner_organization
     from student_past_capstone_shortlists s
@@ -17630,7 +17667,6 @@ declare
   v_native_past_id bigint;
   v_year text := substring(coalesce((select current_term from marketplace_settings where setting_id = 1), watmatch_default_marketplace_term()) from '[0-9]{4}$');
   v_now timestamptz := now();
-  v_students text[];
   v_departments text[];
   v_mentor_name text;
   v_applied_continuations integer := 0;
@@ -17789,22 +17825,19 @@ begin
   elsif v_decision = 'publish_completed' then
     v_year := substring(coalesce(v_capstone.completed_term, v_current_term) from '[0-9]{4}$');
 
-    select coalesce(array_agg(u.email order by u.email), '{}'::text[])
-      into v_students
-    from team_memberships tm
-    join users u on u.user_id = tm.user_fk
-    where tm.team_fk = v_capstone.team_fk;
-
     select coalesce(array_agg(d.name order by d.name), coalesce(v_capstone.disciplines, '{}'::text[]))
       into v_departments
     from capstone_departments cd
     join departments d on d.department_id = cd.department_fk
     where cd.capstone_fk = v_capstone.capstone_id;
 
-    select u.email
+    select case
+        when position('@' in coalesce(mp.display_name, '')) > 0 then null
+        else nullif(btrim(mp.display_name), '')
+      end
       into v_mentor_name
     from mentor_requests mr
-    join users u on u.user_id = mr.mentor_fk
+    join mentor_profiles mp on mp.mentor_fk = mr.mentor_fk
     where mr.capstone_fk = v_capstone.capstone_id
       and mr.status = 'accepted'
     order by mr.decided_at desc nulls last, mr.created_at desc
@@ -17839,7 +17872,7 @@ begin
       v_capstone.description,
       coalesce(v_departments, coalesce(v_capstone.disciplines, '{}'::text[])),
       coalesce(v_year, extract(year from current_date)::text),
-      coalesce(v_students, '{}'::text[]),
+      '{}'::text[],
       v_capstone.course_fk,
       coalesce(v_capstone.completed_term, v_current_term),
       v_capstone.project_start_date,
@@ -17853,41 +17886,21 @@ begin
       v_capstone.external_partner_name,
       v_capstone.external_partner_organization,
       jsonb_build_object(
-        'capstone', to_jsonb(v_capstone),
-        'team', (select to_jsonb(t) from teams t where t.team_id = v_capstone.team_fk),
-        'members', coalesce(
-          (
-            select jsonb_agg(
-              jsonb_build_object(
-                'user_id', u.user_id,
-                'email', u.email,
-                'home_department', hd.name,
-                'course_fk', u.course_fk,
-                'enrollment_course_fk', tm.enrollment_course_fk,
-                'enrollment_course', case
-                  when ec.course_id is null then null
-                  else jsonb_build_object(
-                    'course_id', ec.course_id,
-                    'code', ec.code,
-                    'name', ec.name,
-                    'active', ec.active,
-                    'routing_kind', ec.routing_kind,
-                    'ecosystem_fk', ec.ecosystem_fk
-                  )
-                end,
-                'is_leader', tm.is_leader
-              )
-              order by tm.is_leader desc, u.email
-            )
-            from team_memberships tm
-            join users u on u.user_id = tm.user_fk
-            left join courses ec on ec.course_id = tm.enrollment_course_fk
-            left join departments hd on hd.department_id = u.home_department_fk
-            where tm.team_fk = v_capstone.team_fk
-          ),
-          '[]'::jsonb
-        ),
-        'support_summary', watmatch_capstone_support_summary(v_capstone.capstone_id)
+        'title', v_capstone.title,
+        'description', v_capstone.description,
+        'department', coalesce(v_departments, coalesce(v_capstone.disciplines, '{}'::text[])),
+        'year', coalesce(v_year, extract(year from current_date)::text),
+        'completed_term', coalesce(v_capstone.completed_term, v_current_term),
+        'project_start_date', v_capstone.project_start_date,
+        'problem_area', v_capstone.problem_area,
+        'main_objectives', v_capstone.main_objectives,
+        'scope_of_work', v_capstone.scope_of_work,
+        'deliverables', v_capstone.deliverables,
+        'deliverable_types', coalesce(v_capstone.deliverable_types, '{}'::text[]),
+        'skills', coalesce(v_capstone.skills, '{}'::text[]),
+        'mentor_name', v_mentor_name,
+        'external_partner_name', v_capstone.external_partner_name,
+        'external_partner_organization', v_capstone.external_partner_organization
       )
     )
     on conflict (source_capstone_fk) do update

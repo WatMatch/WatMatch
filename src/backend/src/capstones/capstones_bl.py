@@ -13,6 +13,35 @@ from ..workflow.workflow_utils import (
 logger = logging.getLogger(__name__)
 
 
+_PAST_WATMATCH_PUBLIC_FIELDS = (
+    "shortlist_id",
+    "source_type",
+    "source_id",
+    "past_capstone_id",
+    "past_watmatch_capstone_id",
+    "shortlisted_at",
+    "is_shortlisted",
+    "title",
+    "description",
+    "department",
+    "year",
+    "students",
+    "source_fk",
+    "completed_term",
+    "project_start_date",
+    "problem_area",
+    "main_objectives",
+    "scope_of_work",
+    "deliverables",
+    "deliverable_types",
+    "skills",
+    "mentor_name",
+    "external_partner_name",
+    "external_partner_organization",
+    "created_at",
+)
+
+
 class CapstonesBusinessLogic:
     """Business layer for capstone operations"""
 
@@ -1028,6 +1057,30 @@ class CapstonesBusinessLogic:
             ]
         return processed
 
+    def _process_past_watmatch_capstone_data(
+        self,
+        capstone_data: Dict[Any, Any],
+    ) -> Dict[Any, Any]:
+        processed = self._process_past_capstone_data(capstone_data)
+        public_data = {
+            field: processed[field]
+            for field in _PAST_WATMATCH_PUBLIC_FIELDS
+            if field in processed
+        }
+        public_data["students"] = []
+
+        if "mentor_name" in public_data:
+            mentor_name = public_data.get("mentor_name")
+            if isinstance(mentor_name, str):
+                mentor_name = mentor_name.strip()
+                public_data["mentor_name"] = (
+                    mentor_name if mentor_name and "@" not in mentor_name else None
+                )
+            elif mentor_name is not None:
+                public_data["mentor_name"] = None
+
+        return public_data
+
     def _normalize_past_shortlist_source(self, source_type: str) -> Optional[str]:
         normalized = (source_type or "").strip().lower()
         if normalized in {"scraped", "historical", "imported", "past"}:
@@ -1073,7 +1126,10 @@ class CapstonesBusinessLogic:
                 student_id=student_id,
                 saved_only=saved_only,
             )
-            data = [self._process_past_capstone_data(row) for row in result.get("data") or []]
+            data = [
+                self._process_past_watmatch_capstone_data(row)
+                for row in result.get("data") or []
+            ]
             return {
                 "success": True,
                 "page": result.get("page", page),
@@ -1166,7 +1222,12 @@ class CapstonesBusinessLogic:
                 student_id=student_id,
                 limit=limit,
             )
-            data = [self._process_past_capstone_data(row) for row in payload.get("data") or []]
+            data = [
+                self._process_past_watmatch_capstone_data(row)
+                if self._normalize_past_shortlist_source(row.get("source_type")) == "watmatch"
+                else self._process_past_capstone_data(row)
+                for row in payload.get("data") or []
+            ]
             return {
                 "success": payload.get("success", True),
                 "message": payload.get("message", "Saved past capstones retrieved."),
