@@ -614,7 +614,10 @@ async def list_my_partner_teams(
     }
     capstone_rows = (
         supabase.table("capstones")
-        .select("capstone_id,title,status,team_fk,partner_opportunity_fk")
+        .select(
+            "capstone_id,title,status,team_fk,partner_opportunity_fk,"
+            "external_partner_support_confirmed"
+        )
         .in_("partner_opportunity_fk", opportunity_ids)
         .eq("archived", False)
         .execute()
@@ -658,6 +661,9 @@ async def list_my_partner_teams(
                 "title": capstone.get("title"),
                 "status": capstone.get("status"),
                 "partner_opportunity_fk": opportunity_id,
+                "external_partner_support_confirmed": bool(
+                    capstone.get("external_partner_support_confirmed")
+                ),
             },
             "opportunity": opportunities_map.get(int(opportunity_id)) if opportunity_id is not None else None,
             "team_members": members_by_team.get(team_id, []),

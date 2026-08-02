@@ -4011,6 +4011,33 @@ as $$
   ) offering_row;
 $$;
 
+create or replace function watmatch_effective_course_requires_project_support(p_course_id bigint)
+returns boolean
+language sql
+stable
+set search_path = public
+as $$
+  select coalesce(
+    (
+      select offering.requires_project_support
+      from course_offerings offering
+      where offering.course_fk = p_course_id
+        and offering.term = watmatch_current_marketplace_term()
+        and offering.status = 'active'
+      order by
+        offering.updated_at desc nulls last,
+        offering.course_offering_id desc
+      limit 1
+    ),
+    (
+      select course.requires_project_support
+      from courses course
+      where course.course_id = p_course_id
+    ),
+    true
+  );
+$$;
+
 create or replace function watmatch_normalize_course_active_terms(p_active_terms text[])
 returns text[]
 language sql
@@ -8223,7 +8250,6 @@ set search_path = public
 as $$
 declare
   v_capstone capstones%rowtype;
-  v_course courses%rowtype;
   v_team teams%rowtype;
   v_accepted jsonb := null;
   v_pending_requests integer := 0;
@@ -8247,13 +8273,6 @@ begin
       into v_team
     from teams
     where team_id = v_capstone.team_fk;
-  end if;
-
-  if coalesce(v_capstone.course_fk, v_team.course_fk) is not null then
-    select *
-      into v_course
-    from courses
-    where course_id = coalesce(v_capstone.course_fk, v_team.course_fk);
   end if;
 
   select jsonb_build_object(
@@ -8291,7 +8310,9 @@ begin
     and request_source = 'mentor_offer';
 
   return jsonb_build_object(
-    'requires_project_support', coalesce(v_course.requires_project_support, true),
+    'requires_project_support', watmatch_effective_course_requires_project_support(
+      watmatch_target_course_fk(v_capstone.capstone_id, v_capstone.team_fk)
+    ),
     'has_support', v_accepted is not null or v_capstone.external_partner_support_confirmed is true,
     'accepted_mentor', v_accepted,
     'pending_mentor_request_count', v_pending_requests,
@@ -9362,7 +9383,6 @@ declare
   v_role text := lower(coalesce(p_actor_role, ''));
   v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
   v_now timestamptz := now();
-  v_course courses%rowtype;
   v_support_summary jsonb;
   v_is_staff_override boolean := false;
 begin
@@ -9495,21 +9515,9 @@ begin
       using errcode = '23514';
   end if;
 
-  if v_capstone.course_fk is not null then
-    select *
-      into v_course
-    from courses
-    where course_id = v_capstone.course_fk;
-  elsif v_team.course_fk is not null then
-    select *
-      into v_course
-    from courses
-    where course_id = v_team.course_fk;
-  end if;
-
   v_support_summary := watmatch_capstone_support_summary(v_capstone.capstone_id);
 
-  if coalesce(v_course.requires_project_support, true) is true
+  if coalesce((v_support_summary ->> 'requires_project_support')::boolean, true) is true
      and coalesce((v_support_summary ->> 'has_support')::boolean, false) is not true then
     raise exception 'This course requires either an accepted mentor or confirmed external partner support before finalization.'
       using errcode = '23514';
@@ -16832,13 +16840,14 @@ begin
   into v_support_gaps
   from capstones c
   join teams t on t.team_id = c.team_fk
-  left join courses target_course on target_course.course_id = watmatch_target_course_fk(c.capstone_id, t.team_id)
   where c.archived is not true
     and c.status = 'approved_recruiting'
     and t.status not in ('archived', 'finalized')
     and c.closeout_decision is null
     and coalesce(c.carry_over_read_only, false) is false
-    and coalesce(target_course.requires_project_support, true) is true
+    and watmatch_effective_course_requires_project_support(
+      watmatch_target_course_fk(c.capstone_id, t.team_id)
+    ) is true
     and coalesce(c.external_partner_support_confirmed, false) is false
     and not exists (
       select 1
@@ -18113,13 +18122,14 @@ begin
       into v_support_gap_count
     from capstones c
     join teams t on t.team_id = c.team_fk
-    left join courses target_course on target_course.course_id = watmatch_target_course_fk(c.capstone_id, t.team_id)
     where c.archived is not true
       and c.status = 'approved_recruiting'
       and t.status not in ('archived', 'finalized')
       and c.closeout_decision is null
       and coalesce(c.carry_over_read_only, false) is false
-      and coalesce(target_course.requires_project_support, true) is true
+      and watmatch_effective_course_requires_project_support(
+        watmatch_target_course_fk(c.capstone_id, t.team_id)
+      ) is true
       and coalesce(c.external_partner_support_confirmed, false) is false
       and not exists (
         select 1

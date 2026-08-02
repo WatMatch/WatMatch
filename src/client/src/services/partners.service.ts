@@ -88,6 +88,7 @@ export interface PartnerTeam {
         title?: string | null;
         status?: string | null;
         partner_opportunity_fk?: number | null;
+        external_partner_support_confirmed: boolean;
     } | null;
     opportunity: {
         partner_opportunity_id?: number;

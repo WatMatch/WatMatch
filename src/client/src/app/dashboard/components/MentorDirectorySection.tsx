@@ -1,8 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { RefreshCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { TaxonomyChipList } from "@/components/ui/taxonomy-chip";
 import {
     Select,
     SelectContent,
@@ -10,6 +13,13 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import {
+    Disclosure,
+    EmptyState,
+    Notice,
+    SectionHeader,
+    StatusBadge,
+} from "@/components/ui/workspace";
 import { fetchActiveMentors, type MentorUserSummary } from "@/services/capstones.service";
 import { fetchDepartments, type Department } from "@/services/departments.service";
 
@@ -36,8 +46,11 @@ export function MentorDirectorySection() {
     const [availabilityTerm, setAvailabilityTerm] = useState(ALL_TERMS);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const loadRequestIdRef = useRef(0);
 
     const load = useCallback(async () => {
+        const requestId = loadRequestIdRef.current + 1;
+        loadRequestIdRef.current = requestId;
         setLoading(true);
         setError("");
         try {
@@ -54,13 +67,17 @@ export function MentorDirectorySection() {
                 }),
                 fetchDepartments(true),
             ]);
+            if (loadRequestIdRef.current !== requestId) return;
             setMentors(mentorRows);
             setDepartments(departmentRows);
         } catch (err) {
+            if (loadRequestIdRef.current !== requestId) return;
             console.error(err);
             setError(err instanceof Error ? err.message : "Could not load mentor directory.");
         } finally {
-            setLoading(false);
+            if (loadRequestIdRef.current === requestId) {
+                setLoading(false);
+            }
         }
     }, [availabilityTerm, departmentId, search]);
 
@@ -69,67 +86,89 @@ export function MentorDirectorySection() {
     }, [load]);
 
     return (
-        <section className="space-y-4">
-            <div>
-                <h2 className="text-xl font-semibold text-slate-900">Mentor Directory</h2>
-                <p className="text-sm text-slate-600">
-                    Browse active mentor accounts by department, availability, and expertise.
-                </p>
-            </div>
-
-            <div className="rounded-md border border-slate-200 bg-white p-4">
-                <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_minmax(200px,260px)_minmax(160px,220px)_auto]">
-                    <Input
-                        value={search}
-                        onChange={(event) => setSearch(event.target.value)}
-                        placeholder="Search name, email, affiliation, or expertise"
-                    />
-                    <Select value={departmentId} onValueChange={setDepartmentId}>
-                        <SelectTrigger>
-                            <SelectValue placeholder="Department" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value={ALL_DEPARTMENTS}>All departments</SelectItem>
-                            {departments.map((department) => (
-                                <SelectItem
-                                    key={department.department_id}
-                                    value={String(department.department_id)}
-                                >
-                                    {department.name}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                    <Select value={availabilityTerm} onValueChange={setAvailabilityTerm}>
-                        <SelectTrigger>
-                            <SelectValue placeholder="Availability" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value={ALL_TERMS}>All terms</SelectItem>
-                            {["Winter", "Spring", "Fall"].map((term) => (
-                                <SelectItem key={term} value={term}>
-                                    {term}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                    <Button type="button" variant="outline" onClick={load} disabled={loading}>
+        <section className="space-y-5">
+            <SectionHeader
+                title="Mentor directory"
+                description="Find active mentors by department, availability, expertise, and current project load."
+                actions={
+                    <Button type="button" variant="outline" size="sm" onClick={load} disabled={loading}>
+                        <RefreshCw className="size-4" aria-hidden="true" />
                         Refresh
                     </Button>
-                </div>
+                }
+            />
 
-                {error && (
-                    <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                        {error}
+            <div className="wm-panel p-3">
+                <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_minmax(190px,250px)_minmax(150px,210px)]">
+                    <div className="relative min-w-0">
+                        <Label htmlFor="mentor-search" className="sr-only">Search mentors</Label>
+                        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                        <Input
+                            id="mentor-search"
+                            value={search}
+                            onChange={(event) => setSearch(event.target.value)}
+                            placeholder="Search mentors or expertise"
+                            className="pl-9"
+                        />
                     </div>
-                )}
+                    <div>
+                        <Label htmlFor="mentor-department" className="sr-only">Department</Label>
+                        <Select value={departmentId} onValueChange={setDepartmentId}>
+                            <SelectTrigger id="mentor-department">
+                                <SelectValue placeholder="Department" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value={ALL_DEPARTMENTS}>All departments</SelectItem>
+                                {departments.map((department) => (
+                                    <SelectItem key={department.department_id} value={String(department.department_id)}>
+                                        {department.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div>
+                        <Label htmlFor="mentor-availability" className="sr-only">Availability</Label>
+                        <Select value={availabilityTerm} onValueChange={setAvailabilityTerm}>
+                            <SelectTrigger id="mentor-availability">
+                                <SelectValue placeholder="Availability" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value={ALL_TERMS}>All terms</SelectItem>
+                                {[
+                                    "Winter",
+                                    "Spring",
+                                    "Fall",
+                                ].map((term) => (
+                                    <SelectItem key={term} value={term}>{term}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </div>
+            </div>
 
-                {loading ? (
-                    <p className="mt-4 text-sm text-slate-600">Loading mentors...</p>
-                ) : mentors.length === 0 ? (
-                    <p className="mt-4 text-sm text-slate-600">No active mentors match these filters.</p>
-                ) : (
-                    <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {error && (
+                <Notice tone="danger" title="Mentor directory could not be refreshed">
+                    {error}
+                </Notice>
+            )}
+
+            {loading ? (
+                <div className="wm-panel px-4 py-5 text-sm text-slate-600" role="status">
+                    Loading mentors…
+                </div>
+            ) : mentors.length === 0 ? (
+                <EmptyState
+                    title="No active mentors match these filters"
+                    description="Try a broader department, term, or search phrase."
+                />
+            ) : (
+                <div className="space-y-2">
+                    <p className="text-xs font-medium tabular-nums text-slate-500">
+                        {mentors.length} {mentors.length === 1 ? "mentor" : "mentors"}
+                    </p>
+                    <div className="wm-panel overflow-hidden">
                         {mentors.map((mentor) => {
                             const profile = mentor.profile;
                             const availability = profile?.availability_terms || [];
@@ -141,66 +180,71 @@ export function MentorDirectorySection() {
                                 preferredProjectLoad > 0 &&
                                 activeProjectCount > preferredProjectLoad;
                             return (
-                                <div
+                                <Disclosure
                                     key={mentor.user_id}
-                                    className="rounded-md border border-slate-200 bg-slate-50 p-3"
-                                >
-                                    <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                                        <div className="min-w-0">
-                                            <p className="break-words font-medium text-slate-900">
-                                                {mentorName(mentor)}
-                                            </p>
-                                            <p className="break-all text-xs text-slate-500">
-                                                {mentor.email}
-                                            </p>
-                                        </div>
-                                        <div className="flex flex-wrap gap-1">
-                                            <span className="w-fit rounded bg-white px-2 py-0.5 text-xs text-slate-600">
+                                    className="rounded-none border-x-0 border-b-0 border-t border-slate-100 first:border-t-0"
+                                    summaryClassName="min-h-16 [&::after]:hidden"
+                                    contentClassName="bg-slate-50/60"
+                                    summary={
+                                        <span className="grid min-w-0 gap-x-5 gap-y-2 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,.8fr)_auto] md:items-center">
+                                            <span className="min-w-0">
+                                                <span className="block break-words font-medium text-slate-950">{mentorName(mentor)}</span>
+                                                <span className="mt-0.5 block break-all text-xs font-normal text-slate-500">{mentor.email}</span>
+                                            </span>
+                                            <span className="break-words text-xs font-normal text-slate-600 md:text-sm">
+                                                {mentorDepartment(mentor)}
+                                                {profile?.affiliation ? ` · ${profile.affiliation}` : ""}
+                                            </span>
+                                            <span className="text-xs font-normal text-slate-600">
+                                                {availability.length > 0 ? availability.join(", ") : "Availability not listed"}
+                                            </span>
+                                            <StatusBadge tone={exceedsPreferredLoad ? "warning" : "neutral"}>
                                                 {activeProjectCount} active
-                                                {preferredProjectLoad
-                                                    ? ` | Preferred ${preferredProjectLoad}`
-                                                    : ""}
-                                            </span>
-                                            {exceedsPreferredLoad && (
-                                                <span className="w-fit rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
-                                                    Above preferred load
-                                                </span>
-                                            )}
+                                            </StatusBadge>
+                                        </span>
+                                    }
+                                >
+                                    <div className="grid gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(240px,.8fr)]">
+                                        <div className="min-w-0">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Profile</p>
+                                            <p className="mt-2 whitespace-pre-wrap leading-6 text-slate-700">
+                                                {profile?.bio || "No mentor biography is available."}
+                                            </p>
+                                            <div className="mt-4">
+                                                {expertise.length > 0 ? (
+                                                    <TaxonomyChipList
+                                                        namespace="skill"
+                                                        values={expertise}
+                                                    />
+                                                ) : (
+                                                    <span className="text-xs text-slate-500">No expertise tags listed.</span>
+                                                )}
+                                            </div>
                                         </div>
+                                        <dl className="grid content-start gap-3 rounded-lg border border-slate-200 bg-white p-3 text-xs">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <dt className="text-slate-500">Active projects</dt>
+                                                <dd className="font-medium tabular-nums text-slate-900">{activeProjectCount}</dd>
+                                            </div>
+                                            <div className="flex items-center justify-between gap-3">
+                                                <dt className="text-slate-500">Preferred load</dt>
+                                                <dd className="font-medium tabular-nums text-slate-900">{preferredProjectLoad ?? "Not set"}</dd>
+                                            </div>
+                                            <div className="flex items-start justify-between gap-3">
+                                                <dt className="text-slate-500">Available</dt>
+                                                <dd className="text-right font-medium text-slate-900">{availability.join(", ") || "Not listed"}</dd>
+                                            </div>
+                                            {exceedsPreferredLoad && (
+                                                <Notice tone="warning" className="mt-1">Above the mentor&apos;s preferred project load.</Notice>
+                                            )}
+                                        </dl>
                                     </div>
-                                    <p className="mt-2 text-sm text-slate-700">
-                                        {mentorDepartment(mentor)}
-                                        {profile?.affiliation ? ` - ${profile.affiliation}` : ""}
-                                    </p>
-                                    {profile?.bio && (
-                                        <p className="mt-2 text-sm text-slate-600">
-                                            {profile.bio}
-                                        </p>
-                                    )}
-                                    <div className="mt-3 flex flex-wrap gap-1">
-                                        {availability.map((term) => (
-                                            <span
-                                                key={`${mentor.user_id}-${term}`}
-                                                className="rounded bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700"
-                                            >
-                                                {term}
-                                            </span>
-                                        ))}
-                                        {expertise.slice(0, 8).map((tag) => (
-                                            <span
-                                                key={`${mentor.user_id}-${tag}`}
-                                                className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700"
-                                            >
-                                                {tag}
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
+                                </Disclosure>
                             );
                         })}
                     </div>
-                )}
-            </div>
+                </div>
+            )}
         </section>
     );
 }

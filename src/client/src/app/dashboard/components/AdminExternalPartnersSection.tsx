@@ -1,9 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pencil, Plus, Save } from "lucide-react";
+import { Building2, Loader2, Pencil, Plus, Save, Search, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+} from "@/components/ui/card";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -16,6 +30,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { MultiSelect } from "@/components/ui/multiselect";
+import { TaxonomyChipList, taxonomyChipClassName } from "@/components/ui/taxonomy-chip";
 import {
     deliverableTypeOptions,
     disciplines as fallbackDepartmentOptions,
@@ -27,6 +42,7 @@ import { fetchSkills } from "@/services/skills.service";
 import {
     courseMultiSelectOptions,
     courseTargetTagsFromIds,
+    courseTargetLabel,
     legacyTargetCourseTags as getLegacyTargetCourseTags,
     numericCourseIds,
     targetCourseIdsFromOpportunity,
@@ -45,6 +61,15 @@ import {
     type PartnerProfile,
 } from "@/services/partners.service";
 import { buildTermOptions, withExistingTerm } from "@/lib/term-options";
+import {
+    ConfirmActionDialog,
+    Disclosure,
+    EmptyState,
+    Notice,
+    PaginationBar,
+    SectionHeader,
+    StatusBadge,
+} from "@/components/ui/workspace";
 
 const projectStartTermOptions = buildTermOptions();
 
@@ -140,6 +165,14 @@ function formatPartnerStatus(status: PartnerOpportunityStatus): string {
     return "Unknown";
 }
 
+function partnerStatusTone(
+    status: PartnerOpportunityStatus
+): "success" | "warning" | "neutral" {
+    if (status === "published") return "success";
+    if (status === "draft") return "warning";
+    return "neutral";
+}
+
 export function AdminExternalPartnersSection() {
     const [users, setUsers] = useState<AdminUserEntry[]>([]);
     const [profiles, setProfiles] = useState<PartnerProfile[]>([]);
@@ -149,11 +182,14 @@ export function AdminExternalPartnersSection() {
     const [profileForm, setProfileForm] = useState(emptyProfileForm);
     const [form, setForm] = useState(emptyForm);
     const [editingId, setEditingId] = useState<number | null>(null);
+    const [profileEditorOpen, setProfileEditorOpen] = useState(false);
+    const [opportunityEditorOpen, setOpportunityEditorOpen] = useState(false);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [savingProfile, setSavingProfile] = useState(false);
     const [error, setError] = useState("");
     const [notice, setNotice] = useState("");
+    const [partnerSearch, setPartnerSearch] = useState("");
     const [departmentOptions, setDepartmentOptions] = useState<string[]>(
         fallbackDepartmentOptions
     );
@@ -162,8 +198,6 @@ export function AdminExternalPartnersSection() {
     );
     const [courses, setCourses] = useState<Course[]>([]);
     const loadRequestIdRef = useRef(0);
-    const toolsDetailsRef = useRef<HTMLDetailsElement | null>(null);
-    const opportunityFormRef = useRef<HTMLDivElement | null>(null);
 
     const partnerUsers = useMemo(
         () => users.filter((user) => user.role === "external_partner" && user.active),
@@ -287,6 +321,29 @@ export function AdminExternalPartnersSection() {
             ),
         [profiles]
     );
+    const normalizedPartnerSearch = partnerSearch.trim().toLowerCase();
+    const filteredPartnerUsers = useMemo(() => {
+        if (!normalizedPartnerSearch) return allPartnerUsers;
+
+        return allPartnerUsers.filter((partner) => {
+            const profile = profileByPartnerId.get(String(partner.user_id));
+            const searchableText = [
+                partner.email,
+                partner.active ? "active" : "inactive",
+                profile?.display_name,
+                profile?.organization,
+                profile?.contact_email,
+                profile?.website,
+                profile?.bio,
+                ...(profile?.areas || []),
+            ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
+
+            return searchableText.includes(normalizedPartnerSearch);
+        });
+    }, [allPartnerUsers, normalizedPartnerSearch, profileByPartnerId]);
 
     const selectProfilePartner = (partnerUserId: string) => {
         const partner = partnerUsers.find(
@@ -305,16 +362,34 @@ export function AdminExternalPartnersSection() {
         });
     };
 
-    const focusOpportunityTools = () => {
-        if (toolsDetailsRef.current) {
-            toolsDetailsRef.current.open = true;
+    const openProfileEditor = (partnerUserId?: string) => {
+        if (partnerUserId) {
+            selectProfilePartner(partnerUserId);
+        } else {
+            setProfileForm(emptyProfileForm);
         }
-        window.requestAnimationFrame(() => {
-            opportunityFormRef.current?.scrollIntoView({
-                behavior: "smooth",
-                block: "start",
-            });
-        });
+        setError("");
+        setNotice("");
+        setProfileEditorOpen(true);
+    };
+
+    const closeProfileEditor = () => {
+        setProfileEditorOpen(false);
+        setProfileForm(emptyProfileForm);
+    };
+
+    const startCreate = () => {
+        setEditingId(null);
+        setForm(emptyForm);
+        setError("");
+        setNotice("");
+        setOpportunityEditorOpen(true);
+    };
+
+    const closeOpportunityEditor = () => {
+        setOpportunityEditorOpen(false);
+        setEditingId(null);
+        setForm(emptyForm);
     };
 
     const startEdit = (opportunity: PartnerOpportunity) => {
@@ -372,11 +447,16 @@ export function AdminExternalPartnersSection() {
             status: opportunity.status,
             reason: "",
         });
-        focusOpportunityTools();
+        setError("");
+        setNotice("");
+        setOpportunityEditorOpen(true);
     };
 
-    const saveOpportunity = async () => {
-        const reason = form.reason.trim();
+    const saveOpportunity = async (
+        reasonOverride?: string,
+        rethrowForDialog = false
+    ) => {
+        const reason = reasonOverride?.trim() || form.reason.trim();
         if (!form.partnerUserId) {
             setError("Select an external partner user first.");
             return;
@@ -445,14 +525,15 @@ export function AdminExternalPartnersSection() {
             }
             setEditingId(null);
             setForm(emptyForm);
+            setOpportunityEditorOpen(false);
             await loadData();
         } catch (saveError) {
             console.error(saveError);
-            setError(
-                saveError instanceof Error
-                    ? saveError.message
-                    : "Failed to save external opportunity."
-            );
+            const errorMessage = saveError instanceof Error
+                ? saveError.message
+                : "Failed to save external opportunity.";
+            setError(errorMessage);
+            if (rethrowForDialog) throw new Error(errorMessage);
         } finally {
             setSaving(false);
         }
@@ -482,6 +563,8 @@ export function AdminExternalPartnersSection() {
                 reason,
             });
             setNotice("External partner profile saved.");
+            setProfileEditorOpen(false);
+            setProfileForm(emptyProfileForm);
             await loadData();
         } catch (saveError) {
             console.error(saveError);
@@ -495,40 +578,68 @@ export function AdminExternalPartnersSection() {
         }
     };
 
+    const editingOpportunity = editingId
+        ? opportunities.find((opportunity) => opportunity.partner_opportunity_id === editingId)
+        : null;
+    const isArchivingOpportunity = Boolean(
+        editingOpportunity &&
+            editingOpportunity.status !== "archived" &&
+            form.status === "archived"
+    );
+    const opportunitySaveLabel = saving
+        ? "Saving…"
+        : editingId
+          ? "Save changes"
+          : "Create opportunity";
+
     return (
         <div className="space-y-5">
+            <SectionHeader
+                title="External partners"
+                description="Manage partner profiles and the opportunities published to the student marketplace."
+                actions={
+                    <>
+                        <Button type="button" variant="outline" onClick={() => openProfileEditor()}>
+                            <UsersRound className="h-4 w-4" aria-hidden="true" />
+                            Edit partner profile
+                        </Button>
+                        <Button type="button" onClick={startCreate}>
+                            <Plus className="h-4 w-4" aria-hidden="true" />
+                            New opportunity
+                        </Button>
+                    </>
+                }
+            />
+
             {(error || notice) && (
-                <div
-                    className={`rounded-md border px-3 py-2 text-sm ${
-                        error
-                            ? "border-red-200 bg-red-50 text-red-700"
-                            : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    }`}
-                >
+                <Notice tone={error ? "danger" : "success"}>
                     {error || notice}
-                </div>
+                </Notice>
             )}
 
-            <details
-                ref={toolsDetailsRef}
-                className="rounded-md border border-slate-200 bg-white p-4 shadow-sm"
+            <Dialog
+                open={profileEditorOpen}
+                onOpenChange={(open) => {
+                    if (open) setProfileEditorOpen(true);
+                    else closeProfileEditor();
+                }}
             >
-                <summary className="cursor-pointer text-sm font-medium text-slate-800">
-                    Partner tools
-                </summary>
-                <div className="mt-4 space-y-4">
-            <Card className="border-slate-200 shadow-sm">
-                <CardHeader className="pb-3">
-                    <CardTitle>External Partner Profiles</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
+                <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>Edit partner profile</DialogTitle>
+                        <DialogDescription>
+                            Select an active external-partner account, update its directory information, and record why staff made the change.
+                        </DialogDescription>
+                    </DialogHeader>
+                    {error && <Notice tone="danger">{error}</Notice>}
+                    <div className="space-y-4">
                     <div className="space-y-2">
-                        <Label>External Partner User</Label>
+                        <Label htmlFor="admin-partner-profile-user">External Partner User</Label>
                         <Select
                             value={profileForm.partnerUserId}
                             onValueChange={selectProfilePartner}
                         >
-                            <SelectTrigger>
+                            <SelectTrigger id="admin-partner-profile-user">
                                 <SelectValue placeholder="Select external partner" />
                             </SelectTrigger>
                             <SelectContent>
@@ -551,8 +662,9 @@ export function AdminExternalPartnersSection() {
 
                     <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
                         <div className="space-y-2">
-                            <Label>Display Name</Label>
+                            <Label htmlFor="admin-partner-display-name">Display Name</Label>
                             <Input
+                                id="admin-partner-display-name"
                                 value={profileForm.displayName}
                                 onChange={(event) =>
                                     setProfileForm((previous) => ({
@@ -564,8 +676,9 @@ export function AdminExternalPartnersSection() {
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label>Organization</Label>
+                            <Label htmlFor="admin-partner-organization">Organization</Label>
                             <Input
+                                id="admin-partner-organization"
                                 value={profileForm.organization}
                                 onChange={(event) =>
                                     setProfileForm((previous) => ({
@@ -576,8 +689,9 @@ export function AdminExternalPartnersSection() {
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label>Contact Email</Label>
+                            <Label htmlFor="admin-partner-contact-email">Contact Email</Label>
                             <Input
+                                id="admin-partner-contact-email"
                                 type="email"
                                 value={profileForm.contactEmail}
                                 onChange={(event) =>
@@ -592,8 +706,9 @@ export function AdminExternalPartnersSection() {
 
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="space-y-2">
-                            <Label>Website</Label>
+                            <Label htmlFor="admin-partner-website">Website</Label>
                             <Input
+                                id="admin-partner-website"
                                 value={profileForm.website}
                                 onChange={(event) =>
                                     setProfileForm((previous) => ({
@@ -605,8 +720,9 @@ export function AdminExternalPartnersSection() {
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label>Areas</Label>
+                            <Label htmlFor="admin-partner-areas">Areas</Label>
                             <Input
+                                id="admin-partner-areas"
                                 value={profileForm.areas}
                                 onChange={(event) =>
                                     setProfileForm((previous) => ({
@@ -620,8 +736,9 @@ export function AdminExternalPartnersSection() {
                     </div>
 
                     <div className="space-y-2">
-                        <Label>Bio</Label>
+                        <Label htmlFor="admin-partner-bio">Bio</Label>
                         <Textarea
+                            id="admin-partner-bio"
                             rows={4}
                             value={profileForm.bio}
                             onChange={(event) =>
@@ -634,8 +751,12 @@ export function AdminExternalPartnersSection() {
                     </div>
 
                     <div className="space-y-2">
-                        <Label>Audit Reason</Label>
+                        <Label htmlFor="admin-partner-profile-reason">
+                            Audit reason <span className="font-normal text-slate-500">(required)</span>
+                        </Label>
                         <Textarea
+                            id="admin-partner-profile-reason"
+                            required
                             rows={3}
                             value={profileForm.reason}
                             onChange={(event) =>
@@ -648,29 +769,47 @@ export function AdminExternalPartnersSection() {
                         />
                     </div>
 
-                    <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                    </div>
+                    <DialogFooter>
+                        <Button type="button" variant="outline" onClick={closeProfileEditor} disabled={savingProfile}>
+                            Cancel
+                        </Button>
                         <Button
+                            type="button"
                             onClick={saveProfile}
                             disabled={savingProfile || !profileForm.reason.trim()}
-                            className="w-full sm:w-auto"
                         >
-                        <Save className="w-4 h-4 mr-2" />
-                        {savingProfile ? "Saving..." : "Save Profile"}
+                            {savingProfile ? (
+                                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                            ) : (
+                                <Save className="h-4 w-4" aria-hidden="true" />
+                            )}
+                            {savingProfile ? "Saving…" : "Save profile"}
                         </Button>
-                    </div>
-                </CardContent>
-            </Card>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
-            <div ref={opportunityFormRef}>
-            <Card className="border-slate-200 shadow-sm">
-                <CardHeader className="pb-3">
-                    <CardTitle>
-                        {editingId ? "Edit External Opportunity" : "Create External Opportunity"}
-                    </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
+            <Dialog
+                open={opportunityEditorOpen}
+                onOpenChange={(open) => {
+                    if (open) setOpportunityEditorOpen(true);
+                    else closeOpportunityEditor();
+                }}
+            >
+                <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-4xl">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {editingId ? "Edit external opportunity" : "Create external opportunity"}
+                        </DialogTitle>
+                        <DialogDescription>
+                            Keep the marketplace summary concise. Supporting delivery, targeting, and organization context can be expanded as needed.
+                        </DialogDescription>
+                    </DialogHeader>
+                    {error && <Notice tone="danger">{error}</Notice>}
+                    <div className="space-y-4">
                     <div className="space-y-2">
-                        <Label>External Partner User</Label>
+                        <Label htmlFor="admin-opportunity-partner">External Partner User</Label>
                         <Select
                             value={form.partnerUserId}
                             onValueChange={(value) => {
@@ -684,7 +823,7 @@ export function AdminExternalPartnersSection() {
                                 }));
                             }}
                         >
-                            <SelectTrigger>
+                            <SelectTrigger id="admin-opportunity-partner">
                                 <SelectValue placeholder="Select external partner" />
                             </SelectTrigger>
                             <SelectContent>
@@ -704,33 +843,33 @@ export function AdminExternalPartnersSection() {
 
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="space-y-2">
-                            <Label>Title</Label>
-                            <Input value={form.title} onChange={(event) => setForm((previous) => ({ ...previous, title: event.target.value }))} />
+                            <Label htmlFor="admin-opportunity-title">Title</Label>
+                            <Input id="admin-opportunity-title" value={form.title} onChange={(event) => setForm((previous) => ({ ...previous, title: event.target.value }))} />
                         </div>
                         <div className="space-y-2">
-                            <Label>Organization</Label>
-                            <Input value={form.organization} onChange={(event) => setForm((previous) => ({ ...previous, organization: event.target.value }))} placeholder={selectedPartner?.email || ""} />
+                            <Label htmlFor="admin-opportunity-organization">Organization</Label>
+                            <Input id="admin-opportunity-organization" value={form.organization} onChange={(event) => setForm((previous) => ({ ...previous, organization: event.target.value }))} placeholder={selectedPartner?.email || ""} />
                         </div>
                     </div>
 
                     <div className="space-y-2">
-                        <Label>Description</Label>
-                        <Textarea rows={5} value={form.description} onChange={(event) => setForm((previous) => ({ ...previous, description: event.target.value }))} />
+                        <Label htmlFor="admin-opportunity-description">Description</Label>
+                        <Textarea id="admin-opportunity-description" rows={5} value={form.description} onChange={(event) => setForm((previous) => ({ ...previous, description: event.target.value }))} />
                     </div>
 
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="space-y-2">
-                            <Label>Primary Contact</Label>
-                            <Input value={form.primaryContact} onChange={(event) => setForm((previous) => ({ ...previous, primaryContact: event.target.value }))} />
+                            <Label htmlFor="admin-opportunity-primary-contact">Primary Contact</Label>
+                            <Input id="admin-opportunity-primary-contact" value={form.primaryContact} onChange={(event) => setForm((previous) => ({ ...previous, primaryContact: event.target.value }))} />
                         </div>
                         <div className="space-y-2">
-                            <Label>Phone</Label>
-                            <Input value={form.phone} onChange={(event) => setForm((previous) => ({ ...previous, phone: event.target.value }))} />
+                            <Label htmlFor="admin-opportunity-phone">Phone</Label>
+                            <Input id="admin-opportunity-phone" value={form.phone} onChange={(event) => setForm((previous) => ({ ...previous, phone: event.target.value }))} />
                         </div>
                         <div className="space-y-2">
-                            <Label>Organization Size</Label>
+                            <Label htmlFor="admin-opportunity-organization-size">Organization Size</Label>
                             <Select value={form.organizationSize} onValueChange={(value) => setForm((previous) => ({ ...previous, organizationSize: value }))}>
-                                <SelectTrigger>
+                                <SelectTrigger id="admin-opportunity-organization-size">
                                     <SelectValue placeholder="Select size" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -741,12 +880,12 @@ export function AdminExternalPartnersSection() {
                             </Select>
                         </div>
                         <div className="space-y-2">
-                            <Label>Project Start Date</Label>
+                            <Label htmlFor="admin-opportunity-start-term">Project Start Date</Label>
                             <Select
                                 value={form.projectStartDate}
                                 onValueChange={(value) => setForm((previous) => ({ ...previous, projectStartDate: value }))}
                             >
-                                <SelectTrigger>
+                                <SelectTrigger id="admin-opportunity-start-term">
                                     <SelectValue placeholder="Select starting term" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -759,32 +898,42 @@ export function AdminExternalPartnersSection() {
                             </Select>
                         </div>
                     </div>
+                    <Disclosure
+                        summary="Organization background"
+                        contentClassName="space-y-4"
+                    >
                     <div className="space-y-2">
-                        <Label>How did you hear about capstone?</Label>
-                        <Input value={form.howHeardAboutCapstone} onChange={(event) => setForm((previous) => ({ ...previous, howHeardAboutCapstone: event.target.value }))} />
+                        <Label htmlFor="admin-opportunity-how-heard">How did you hear about capstone?</Label>
+                        <Input id="admin-opportunity-how-heard" value={form.howHeardAboutCapstone} onChange={(event) => setForm((previous) => ({ ...previous, howHeardAboutCapstone: event.target.value }))} />
                     </div>
                     <div className="space-y-2">
-                        <Label>Organization Description</Label>
-                        <Textarea rows={4} value={form.organizationDescription} onChange={(event) => setForm((previous) => ({ ...previous, organizationDescription: event.target.value }))} />
+                        <Label htmlFor="admin-opportunity-organization-description">Organization Description</Label>
+                        <Textarea id="admin-opportunity-organization-description" rows={4} value={form.organizationDescription} onChange={(event) => setForm((previous) => ({ ...previous, organizationDescription: event.target.value }))} />
                     </div>
+                    </Disclosure>
+                    <Disclosure
+                        summary="Project scope, delivery, and student targeting"
+                        contentClassName="space-y-4"
+                    >
                     <div className="space-y-2">
-                        <Label>Problem Area</Label>
-                        <Textarea rows={4} value={form.problemArea} onChange={(event) => setForm((previous) => ({ ...previous, problemArea: event.target.value }))} />
+                        <Label htmlFor="admin-opportunity-problem-area">Problem Area</Label>
+                        <Textarea id="admin-opportunity-problem-area" rows={4} value={form.problemArea} onChange={(event) => setForm((previous) => ({ ...previous, problemArea: event.target.value }))} />
                     </div>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="space-y-2">
-                            <Label>Main Objectives</Label>
-                            <Textarea rows={4} value={form.mainObjectives} onChange={(event) => setForm((previous) => ({ ...previous, mainObjectives: event.target.value }))} />
+                            <Label htmlFor="admin-opportunity-main-objectives">Main Objectives</Label>
+                            <Textarea id="admin-opportunity-main-objectives" rows={4} value={form.mainObjectives} onChange={(event) => setForm((previous) => ({ ...previous, mainObjectives: event.target.value }))} />
                         </div>
                         <div className="space-y-2">
-                            <Label>Scope of Work</Label>
-                            <Textarea rows={4} value={form.scopeOfWork} onChange={(event) => setForm((previous) => ({ ...previous, scopeOfWork: event.target.value }))} />
+                            <Label htmlFor="admin-opportunity-scope-of-work">Scope of Work</Label>
+                            <Textarea id="admin-opportunity-scope-of-work" rows={4} value={form.scopeOfWork} onChange={(event) => setForm((previous) => ({ ...previous, scopeOfWork: event.target.value }))} />
                         </div>
                     </div>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="space-y-2">
-                            <Label>Deliverable Types</Label>
+                            <Label htmlFor="admin-opportunity-deliverable-types">Deliverable Types</Label>
                             <MultiSelect
+                                id="admin-opportunity-deliverable-types"
                                 options={deliverableOptions}
                                 value={form.deliverableTypes}
                                 onChange={(value) =>
@@ -794,12 +943,13 @@ export function AdminExternalPartnersSection() {
                                     }))
                                 }
                                 placeholder="Select deliverables"
+                                chipClassName={() => taxonomyChipClassName("deliverable")}
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label>Meeting Frequency</Label>
+                            <Label htmlFor="admin-opportunity-meeting-frequency">Meeting Frequency</Label>
                             <Select value={form.meetingFrequency} onValueChange={(value) => setForm((previous) => ({ ...previous, meetingFrequency: value }))}>
-                                <SelectTrigger>
+                                <SelectTrigger id="admin-opportunity-meeting-frequency">
                                     <SelectValue placeholder="Select frequency" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -814,19 +964,20 @@ export function AdminExternalPartnersSection() {
                     </div>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="space-y-2">
-                            <Label>Deliverable Details</Label>
-                            <Textarea rows={4} value={form.deliverables} onChange={(event) => setForm((previous) => ({ ...previous, deliverables: event.target.value }))} />
+                            <Label htmlFor="admin-opportunity-deliverable-details">Deliverable Details</Label>
+                            <Textarea id="admin-opportunity-deliverable-details" rows={4} value={form.deliverables} onChange={(event) => setForm((previous) => ({ ...previous, deliverables: event.target.value }))} />
                         </div>
                         <div className="space-y-2">
-                            <Label>Resources Needed</Label>
-                            <Textarea rows={4} value={form.resourcesNeeded} onChange={(event) => setForm((previous) => ({ ...previous, resourcesNeeded: event.target.value }))} />
+                            <Label htmlFor="admin-opportunity-resources-needed">Resources Needed</Label>
+                            <Textarea id="admin-opportunity-resources-needed" rows={4} value={form.resourcesNeeded} onChange={(event) => setForm((previous) => ({ ...previous, resourcesNeeded: event.target.value }))} />
                         </div>
                     </div>
 
                     <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
                         <div className="space-y-2">
-                            <Label>Disciplines</Label>
+                            <Label htmlFor="admin-opportunity-disciplines">Disciplines</Label>
                             <MultiSelect
+                                id="admin-opportunity-disciplines"
                                 options={departmentMultiSelectOptions}
                                 value={form.disciplines}
                                 onChange={(value) =>
@@ -836,11 +987,13 @@ export function AdminExternalPartnersSection() {
                                     }))
                                 }
                                 placeholder="Select departments"
+                                chipClassName={() => taxonomyChipClassName("discipline")}
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label>Skills</Label>
+                            <Label htmlFor="admin-opportunity-skills">Skills</Label>
                             <MultiSelect
+                                id="admin-opportunity-skills"
                                 options={skillMultiSelectOptions}
                                 value={form.skills}
                                 onChange={(value) =>
@@ -852,11 +1005,13 @@ export function AdminExternalPartnersSection() {
                                 placeholder="Select skills"
                                 allowCustom
                                 customLabel="Add skill"
+                                chipClassName={() => taxonomyChipClassName("skill")}
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label>Target Courses</Label>
+                            <Label htmlFor="admin-opportunity-target-courses">Target Courses</Label>
                             <MultiSelect
+                                id="admin-opportunity-target-courses"
                                 options={targetCourseOptions}
                                 value={form.targetCourseIds}
                                 onChange={(value) =>
@@ -866,27 +1021,29 @@ export function AdminExternalPartnersSection() {
                                     }))
                                 }
                                 placeholder="Select courses"
+                                chipClassName={() => taxonomyChipClassName("course")}
                             />
                         </div>
                     </div>
+                    </Disclosure>
 
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                         <div className="space-y-2">
-                            <Label>Team Size</Label>
-                            <Input value={form.preferredTeamSize} onChange={(event) => setForm((previous) => ({ ...previous, preferredTeamSize: event.target.value }))} />
+                            <Label htmlFor="admin-opportunity-team-size">Team Size</Label>
+                            <Input id="admin-opportunity-team-size" value={form.preferredTeamSize} onChange={(event) => setForm((previous) => ({ ...previous, preferredTeamSize: event.target.value }))} />
                         </div>
                         <div className="space-y-2">
-                            <Label>Max Teams</Label>
-                            <Input type="number" min={1} value={form.maxActiveTeams} onChange={(event) => setForm((previous) => ({ ...previous, maxActiveTeams: event.target.value }))} />
+                            <Label htmlFor="admin-opportunity-max-teams">Max Teams</Label>
+                            <Input id="admin-opportunity-max-teams" type="number" min={1} value={form.maxActiveTeams} onChange={(event) => setForm((previous) => ({ ...previous, maxActiveTeams: event.target.value }))} />
                         </div>
                         <div className="space-y-2">
-                            <Label>Contact Email</Label>
-                            <Input type="email" value={form.contactEmail} onChange={(event) => setForm((previous) => ({ ...previous, contactEmail: event.target.value }))} />
+                            <Label htmlFor="admin-opportunity-contact-email">Contact Email</Label>
+                            <Input id="admin-opportunity-contact-email" type="email" value={form.contactEmail} onChange={(event) => setForm((previous) => ({ ...previous, contactEmail: event.target.value }))} />
                         </div>
                         <div className="space-y-2">
-                            <Label>Status</Label>
+                            <Label htmlFor="admin-opportunity-status">Status</Label>
                             <Select value={form.status} onValueChange={(value) => setForm((previous) => ({ ...previous, status: value as PartnerOpportunityStatus }))}>
-                                <SelectTrigger>
+                                <SelectTrigger id="admin-opportunity-status">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -899,13 +1056,17 @@ export function AdminExternalPartnersSection() {
                     </div>
 
                     <div className="space-y-2">
-                        <Label>Contact Link</Label>
-                        <Input value={form.contactUrl} onChange={(event) => setForm((previous) => ({ ...previous, contactUrl: event.target.value }))} />
+                        <Label htmlFor="admin-opportunity-contact-link">Contact Link</Label>
+                        <Input id="admin-opportunity-contact-link" value={form.contactUrl} onChange={(event) => setForm((previous) => ({ ...previous, contactUrl: event.target.value }))} />
                     </div>
 
                     <div className="space-y-2">
-                        <Label>Audit Reason</Label>
+                        <Label htmlFor="admin-opportunity-reason">
+                            Audit reason <span className="font-normal text-slate-500">(required)</span>
+                        </Label>
                         <Textarea
+                            id="admin-opportunity-reason"
+                            required
                             rows={3}
                             value={form.reason}
                             onChange={(event) =>
@@ -918,8 +1079,14 @@ export function AdminExternalPartnersSection() {
                         />
                     </div>
 
-                    <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">
-                        <Label>Policies and Agreements</Label>
+                    <div
+                        role="group"
+                        aria-labelledby="admin-opportunity-policies-label"
+                        className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3"
+                    >
+                        <p id="admin-opportunity-policies-label" className="text-sm font-medium leading-none">
+                            Policies and Agreements
+                        </p>
                         <label className="flex items-start gap-3 text-sm text-slate-700">
                             <Checkbox checked={form.ipAcknowledged} onCheckedChange={(checked) => setForm((previous) => ({ ...previous, ipAcknowledged: checked === true }))} />
                             <span>IP policy acknowledgement received.</span>
@@ -934,128 +1101,326 @@ export function AdminExternalPartnersSection() {
                         </label>
                     </div>
 
-                    <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-                        <Button
-                            onClick={saveOpportunity}
-                            disabled={saving || !form.reason.trim()}
-                            className="w-full sm:w-auto"
-                        >
-                            <Plus className="w-4 h-4 mr-2" />
-                            {saving ? "Saving..." : editingId ? "Update" : "Create"}
+                    </div>
+                    <DialogFooter>
+                        <Button type="button" variant="outline" onClick={closeOpportunityEditor} disabled={saving}>
+                            Cancel
                         </Button>
-                        {editingId && (
+                        {isArchivingOpportunity ? (
+                            <ConfirmActionDialog
+                                title="Archive this external opportunity?"
+                                description="Students will no longer find this opportunity in the published marketplace. Staff can edit and publish it again later."
+                                confirmLabel="Archive opportunity"
+                                tone="destructive"
+                                reasonLabel="Archive reason"
+                                reasonDescription="This reason is saved in the staff audit history."
+                                reasonPlaceholder="Explain why staff is archiving this opportunity."
+                                reasonRequired
+                                initialReason={form.reason}
+                                onConfirm={(reason) => saveOpportunity(reason, true)}
+                                trigger={
+                                    <Button
+                                        type="button"
+                                        disabled={saving || !form.reason.trim()}
+                                    >
+                                        {saving ? (
+                                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                                        ) : (
+                                            <Save className="h-4 w-4" aria-hidden="true" />
+                                        )}
+                                        {opportunitySaveLabel}
+                                    </Button>
+                                }
+                            />
+                        ) : (
                             <Button
-                                variant="outline"
-                                onClick={() => { setEditingId(null); setForm(emptyForm); }}
-                                className="w-full sm:w-auto"
+                                type="button"
+                                onClick={() => saveOpportunity()}
+                                disabled={saving || !form.reason.trim()}
                             >
-                                Cancel
+                                {saving ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                                ) : editingId ? (
+                                    <Save className="h-4 w-4" aria-hidden="true" />
+                                ) : (
+                                    <Plus className="h-4 w-4" aria-hidden="true" />
+                                )}
+                                {opportunitySaveLabel}
                             </Button>
                         )}
-                    </div>
-                </CardContent>
-            </Card>
-            </div>
-                </div>
-            </details>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
-            <Card className="border-slate-200 shadow-sm">
-                <CardHeader className="pb-3">
-                    <CardTitle>External Opportunities</CardTitle>
+            <Card>
+                <CardHeader className="border-b border-slate-100">
+                    <CardTitle>External opportunities</CardTitle>
+                    <CardDescription>
+                        Published and draft partner records. Open an editor only when a record needs staff intervention.
+                    </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-0">
                     {loading ? (
-                        <p className="text-sm text-slate-600">Loading opportunities...</p>
+                        <div className="flex items-center justify-center gap-2 px-5 py-12 text-sm text-slate-600">
+                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                            Loading opportunities…
+                        </div>
                     ) : opportunities.length === 0 ? (
-                        <p className="text-sm text-slate-600">No external opportunities found.</p>
+                        <EmptyState
+                            icon={Building2}
+                            title="No external opportunities"
+                            description="Create the first opportunity after an active external-partner account is available."
+                            action={
+                                <Button type="button" size="sm" onClick={startCreate}>
+                                    <Plus className="h-4 w-4" aria-hidden="true" />
+                                    New opportunity
+                                </Button>
+                            }
+                        />
                     ) : (
-                        <div className="space-y-3">
+                        <div>
                             {opportunities.map((opportunity) => {
                                 const activeCount = Number(opportunity.active_team_count || 0);
                                 const isFull = opportunity.is_available === false;
+                                 const owner = partnerById.get(String(opportunity.partner_user_fk));
+                                 const ownerActive = owner?.active === true;
+                                 const targetCourseLabels = opportunity.target_courses?.length
+                                     ? opportunity.target_courses.map(courseTargetLabel)
+                                     : opportunity.target_course_tags || [];
                                 return (
-                                    <div
+                                    <article
                                         key={opportunity.partner_opportunity_id}
-                                        className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[minmax(0,1fr)_auto]"
+                                        className="border-b border-slate-100 p-4 last:border-b-0 sm:p-5"
                                     >
-                                        <div className="min-w-0">
-                                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                                <p className="font-medium leading-snug text-slate-900">
-                                                    {opportunity.title}
+                                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                                            <div className="min-w-0">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <h3 className="font-semibold leading-snug text-slate-950 [overflow-wrap:anywhere]">
+                                                        {opportunity.title}
+                                                    </h3>
+                                                    <StatusBadge tone={partnerStatusTone(opportunity.status)}>
+                                                        {formatPartnerStatus(opportunity.status)}
+                                                    </StatusBadge>
+                                                    {isFull && <StatusBadge tone="warning">At capacity</StatusBadge>}
+                                                </div>
+                                                <p className="mt-1 text-sm text-slate-600 [overflow-wrap:anywhere]">
+                                                    {opportunity.organization}
+                                                    {owner?.email ? ` · ${owner.email}` : ""}
                                                 </p>
-                                                <span className="w-fit rounded border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
-                                                    {formatPartnerStatus(opportunity.status)}
-                                                </span>
-                                            </div>
-                                            <p className="mt-1 text-sm text-slate-600">
-                                                {opportunity.organization}
-                                            </p>
-                                            <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                                                {opportunity.max_active_teams && (
-                                                    <span className="rounded bg-slate-100 px-2 py-1 text-slate-700">
-                                                        {activeCount}/{opportunity.max_active_teams} teams
-                                                    </span>
-                                                )}
-                                                {isFull && (
-                                                    <span className="rounded bg-amber-100 px-2 py-1 font-medium text-amber-800">
-                                                        Full
-                                                    </span>
-                                                )}
-                                            </div>
-                                            {!partnerById.get(String(opportunity.partner_user_fk))?.active && (
-                                                <p className="mt-1 text-xs text-amber-700">
-                                                    Reactivate this external partner user before editing.
+                                                <p className="mt-1 text-xs text-slate-500">
+                                                    {opportunity.max_active_teams
+                                                        ? `${activeCount} of ${opportunity.max_active_teams} active teams`
+                                                        : `${activeCount} active ${activeCount === 1 ? "team" : "teams"}`}
                                                 </p>
-                                            )}
+                                                {!ownerActive && (
+                                                    <p className="mt-2 text-sm font-medium text-amber-800">
+                                                        Reactivate this external-partner account before editing.
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => startEdit(opportunity)}
+                                                disabled={!ownerActive}
+                                                className="w-full shrink-0 sm:w-auto"
+                                            >
+                                                <Pencil className="h-4 w-4" aria-hidden="true" />
+                                                Edit opportunity
+                                            </Button>
                                         </div>
-                                        <Button
-                                            variant="outline"
-                                            onClick={() => startEdit(opportunity)}
-                                            disabled={!partnerById.get(String(opportunity.partner_user_fk))?.active}
-                                            className="w-full md:w-auto"
-                                        >
-                                            <Pencil className="w-4 h-4 mr-2" />
-                                            Edit
-                                        </Button>
-                                    </div>
+                                        <Disclosure summary="Record context" className="mt-4 shadow-none">
+                                            <div className="space-y-4">
+                                                {opportunity.description && (
+                                                    <p className="whitespace-pre-wrap leading-6 text-slate-700 [overflow-wrap:anywhere]">
+                                                        {opportunity.description}
+                                                    </p>
+                                                )}
+                                                <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                                                    <div>
+                                                        <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Owner</dt>
+                                                        <dd className="mt-1 break-all">{owner?.email || `User #${opportunity.partner_user_fk}`}</dd>
+                                                    </div>
+                                                    <div>
+                                                        <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Contact</dt>
+                                                        <dd className="mt-1 break-all">{opportunity.contact_email || "Not specified"}</dd>
+                                                    </div>
+                                                    <div>
+                                                        <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Start term</dt>
+                                                        <dd className="mt-1">{opportunity.project_start_date || "Not specified"}</dd>
+                                                    </div>
+                                                     <div>
+                                                         <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Target courses</dt>
+                                                         <dd className="mt-1">
+                                                             {targetCourseLabels.length > 0 ? (
+                                                                 <TaxonomyChipList
+                                                                     namespace="course"
+                                                                     values={targetCourseLabels}
+                                                                 />
+                                                             ) : (
+                                                                 "Not specified"
+                                                             )}
+                                                         </dd>
+                                                         </div>
+                                                 </dl>
+                                                 {(opportunity.disciplines?.length ||
+                                                     opportunity.skills?.length ||
+                                                     opportunity.deliverable_types?.length) ? (
+                                                     <div className="grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-3">
+                                                         {opportunity.disciplines?.length ? (
+                                                             <div>
+                                                                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Disciplines</p>
+                                                                 <TaxonomyChipList
+                                                                     namespace="discipline"
+                                                                     values={opportunity.disciplines}
+                                                                     className="mt-2"
+                                                                 />
+                                                             </div>
+                                                         ) : null}
+                                                         {opportunity.skills?.length ? (
+                                                             <div>
+                                                                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Skills</p>
+                                                                 <TaxonomyChipList
+                                                                     namespace="skill"
+                                                                     values={opportunity.skills}
+                                                                     className="mt-2"
+                                                                 />
+                                                             </div>
+                                                         ) : null}
+                                                         {opportunity.deliverable_types?.length ? (
+                                                             <div>
+                                                                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Deliverables</p>
+                                                                 <TaxonomyChipList
+                                                                     namespace="deliverable"
+                                                                     values={opportunity.deliverable_types}
+                                                                     className="mt-2"
+                                                                 />
+                                                             </div>
+                                                         ) : null}
+                                                     </div>
+                                                 ) : null}
+                                             </div>
+                                         </Disclosure>
+                                    </article>
                                 );
                             })}
                         </div>
                     )}
-                    <div className="flex flex-col items-center justify-center gap-3 pt-4 sm:flex-row">
-                        <Button
-                            variant="outline"
-                            onClick={() =>
-                                setOpportunityPage((current) =>
-                                    Math.max(1, current - 1)
-                                )
-                            }
-                            disabled={loading || opportunityPage <= 1}
-                            className="w-full sm:w-auto"
-                        >
-                            Previous
-                        </Button>
-                        <span className="text-sm text-slate-600">
-                            Page {opportunityPage} of {opportunityTotalPages}
-                        </span>
-                        <Button
-                            variant="outline"
-                            onClick={() =>
-                                setOpportunityPage((current) =>
-                                    Math.min(opportunityTotalPages, current + 1)
-                                )
-                            }
-                            disabled={
-                                loading ||
-                                opportunityPage >= opportunityTotalPages
-                            }
-                            className="w-full sm:w-auto"
-                        >
-                            Next
-                        </Button>
-                    </div>
+                    <PaginationBar
+                        page={opportunityPage}
+                        totalPages={opportunityTotalPages}
+                        loading={loading}
+                        onPrevious={() => setOpportunityPage((current) => Math.max(1, current - 1))}
+                        onNext={() => setOpportunityPage((current) => Math.min(opportunityTotalPages, current + 1))}
+                    />
                 </CardContent>
             </Card>
+
+            <Disclosure
+                summary={
+                    <span className="flex items-center gap-2">
+                        <UsersRound className="h-4 w-4 text-slate-500" aria-hidden="true" />
+                        Partner directory
+                        <span className="wm-count tabular-nums">{allPartnerUsers.length}</span>
+                    </span>
+                }
+            >
+                {allPartnerUsers.length === 0 ? (
+                    <EmptyState
+                        icon={UsersRound}
+                        title="No external-partner accounts"
+                        description="Create an external-partner user from the Users section before managing profiles or opportunities."
+                    />
+                ) : (
+                    <div className="space-y-4">
+                        <div className="grid gap-2 border-b border-slate-100 pb-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                            <div className="relative">
+                                <Search
+                                    className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"
+                                    aria-hidden="true"
+                                />
+                                <Label htmlFor="partner-directory-search" className="sr-only">
+                                    Search partner directory
+                                </Label>
+                                <Input
+                                    id="partner-directory-search"
+                                    value={partnerSearch}
+                                    onChange={(event) => setPartnerSearch(event.target.value)}
+                                    placeholder="Search email, organization, or area"
+                                    className="pl-9"
+                                />
+                            </div>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={() => setPartnerSearch("")}
+                                disabled={!normalizedPartnerSearch}
+                                className="w-full sm:w-auto"
+                            >
+                                Clear
+                            </Button>
+                        </div>
+                        <p className="text-xs tabular-nums text-slate-500" aria-live="polite">
+                            {filteredPartnerUsers.length === allPartnerUsers.length
+                                ? `${allPartnerUsers.length} partner${allPartnerUsers.length === 1 ? "" : "s"}`
+                                : `${filteredPartnerUsers.length} of ${allPartnerUsers.length} partners`}
+                        </p>
+                        {filteredPartnerUsers.length === 0 ? (
+                            <EmptyState
+                                icon={UsersRound}
+                                title="No matching partners"
+                                description="Try a broader search or clear the current filter."
+                                action={
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => setPartnerSearch("")}
+                                    >
+                                        Clear filter
+                                    </Button>
+                                }
+                            />
+                        ) : (
+                            <div className="divide-y divide-slate-100">
+                                {filteredPartnerUsers.map((partner) => {
+                                    const profile = profileByPartnerId.get(String(partner.user_id));
+                                    return (
+                                        <div
+                                            key={partner.user_id}
+                                            className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+                                        >
+                                            <div className="min-w-0">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <p className="break-all font-medium text-slate-900">{partner.email}</p>
+                                                    <StatusBadge tone={partner.active ? "success" : "neutral"}>
+                                                        {partner.active ? "Active" : "Inactive"}
+                                                    </StatusBadge>
+                                                </div>
+                                                <p className="mt-1 text-sm text-slate-500 [overflow-wrap:anywhere]">
+                                                    {profile?.organization || profile?.display_name || "Profile not completed"}
+                                                    {profile?.contact_email ? ` · ${profile.contact_email}` : ""}
+                                                </p>
+                                            </div>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => openProfileEditor(String(partner.user_id))}
+                                                disabled={!partner.active}
+                                                className="w-full shrink-0 sm:w-auto"
+                                            >
+                                                <Pencil className="h-4 w-4" aria-hidden="true" />
+                                                Edit profile
+                                            </Button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                )}
+            </Disclosure>
         </div>
     );
 }
