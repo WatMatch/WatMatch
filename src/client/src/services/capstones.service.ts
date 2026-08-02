@@ -795,7 +795,6 @@ export async function fetchActiveMentors(params?: {
 }
 
 export async function updateMentorProfile(payload: {
-    mentor_id?: number | null;
     display_name?: string | null;
     primary_department_id?: number | null;
     department_ids?: number[] | null;
@@ -805,10 +804,7 @@ export async function updateMentorProfile(payload: {
     expertise_tags?: string[] | null;
     max_active_projects?: number | null;
 }): Promise<MentorProfile> {
-    const endpoint = payload.mentor_id
-        ? `/api/v1/capstones/mentors/${payload.mentor_id}/profile`
-        : "/api/v1/capstones/mentor/profile";
-    const response = await apiFetch(buildApiUrl(endpoint), {
+    const response = await apiFetch(buildApiUrl("/api/v1/capstones/mentor/profile"), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

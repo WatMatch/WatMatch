@@ -38,7 +38,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 
     user_response = (
         supabase.table("users")
-        .select("user_id,email,role,course_fk,active")
+        .select("user_id,email,role,course_fk,home_department_fk,active")
         .eq("user_id", user_id)
         .limit(1)
         .execute()
@@ -61,7 +61,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     if user.get("course_fk") is not None:
         course_response = (
             supabase.table("courses")
-            .select("course_id,code,name,term,active")
+            .select("course_id,code,name,active,active_terms,activation_mode,department_fk,routing_kind,requires_project_support")
             .eq("course_id", user.get("course_fk"))
             .limit(1)
             .execute()
@@ -69,11 +69,25 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         course = (course_response.data or [None])[0]
         course_active = bool(course.get("active")) if course else False
 
+    home_department = None
+    if user.get("home_department_fk") is not None:
+        department_response = (
+            supabase.table("departments")
+            .select("department_id,name,active")
+            .eq("department_id", user.get("home_department_fk"))
+            .limit(1)
+            .execute()
+        )
+        home_department = (department_response.data or [None])[0]
+
     return {
         "user_id": user.get("user_id"),
         "email": user.get("email"),
         "role": user.get("role"),
         "course_fk": user.get("course_fk"),
+        "home_department_fk": user.get("home_department_fk"),
+        "home_department_id": user.get("home_department_fk"),
+        "home_department": home_department,
         "active": user.get("active"),
         "course": course,
         "course_active": course_active,

@@ -25,8 +25,7 @@ class LogoutRequest(BaseModel):
 @router.post("/login")
 async def login(request: LoginRequest) -> Dict[str, Any]:
     """
-    Login user and get access and refresh tokens.
-    (Password validation to be implemented later)
+    Login an admin-provisioned local/demo user and get access and refresh tokens.
 
     Request body:
     - email: User's email

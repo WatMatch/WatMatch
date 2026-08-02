@@ -1252,35 +1252,6 @@ async def upsert_my_mentor_profile(
     return result
 
 
-@router.put("/mentors/{mentor_id:int}/profile")
-async def upsert_mentor_profile_as_admin(
-    mentor_id: int,
-    request: MentorProfileRequest,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-) -> Dict[str, Any]:
-    if (current_user.get("role") or "").lower() != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    result = capstones_business.upsert_mentor_profile(
-        actor_id=int(current_user["user_id"]),
-        actor_role=current_user.get("role") or "",
-        mentor_id=mentor_id,
-        display_name=request.display_name,
-        primary_department_id=request.primary_department_id,
-        department_ids=request.department_ids,
-        affiliation=request.affiliation,
-        bio=request.bio,
-        availability_terms=request.availability_terms,
-        expertise_tags=request.expertise_tags,
-        max_active_projects=request.max_active_projects,
-    )
-    if not result["success"]:
-        raise HTTPException(
-            status_code=_status_for_admin_message(result["message"]),
-            detail=result["message"],
-        )
-    return result
-
-
 @router.get("/mentor/dashboard")
 async def get_mentor_dashboard(
     current_user: Dict[str, Any] = Depends(get_current_user),
