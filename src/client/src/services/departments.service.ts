@@ -75,7 +75,12 @@ export async function createDepartment(payload: {
 
 export async function updateDepartment(
     departmentId: number,
-    payload: { name?: string; active?: boolean; faculty_id?: number | null }
+    payload: {
+        name?: string;
+        active?: boolean;
+        faculty_id?: number | null;
+        reason?: string;
+    }
 ): Promise<Department> {
     const response = await apiFetch(
         buildApiUrl(`/api/v1/departments/${departmentId}`),

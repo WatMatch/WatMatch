@@ -237,6 +237,7 @@ class CoursesBusinessLogic:
         marketplace_phase_override_reason_supplied: bool,
         requires_project_support: Optional[bool],
         actor_id: int,
+        reason: Optional[str] = None,
     ) -> Dict[str, Any]:
         if course_id <= 0:
             return {"success": False, "message": "Invalid course_id", "data": None}
@@ -300,6 +301,22 @@ class CoursesBusinessLogic:
             )
         if requires_project_support is not None:
             payload["requires_project_support"] = requires_project_support
+        normalized_reason = (
+            reason.strip()
+            if isinstance(reason, str) and reason.strip()
+            else None
+        )
+        is_forcing_inactive = (
+            str(existing.get("activation_mode") or "auto").strip().lower()
+            != "force_inactive"
+            and payload["activation_mode"] == "force_inactive"
+        )
+        if is_forcing_inactive and normalized_reason is None:
+            return {
+                "success": False,
+                "message": "Forcing a course inactive requires an audit reason.",
+                "data": None,
+            }
         try:
             return self.courses_data.upsert_course_rpc(
                 course_id=course_id,
@@ -314,7 +331,7 @@ class CoursesBusinessLogic:
                 marketplace_phase_override_reason=payload["marketplace_phase_override_reason"],
                 requires_project_support=payload["requires_project_support"],
                 actor_id=actor_id,
-                reason="admin_course_management",
+                reason=normalized_reason or "admin_course_management",
             )
         except Exception as e:
             return {"success": False, "message": str(e), "data": None}
@@ -401,9 +418,27 @@ class CoursesBusinessLogic:
         marketplace_phase_override: Optional[str],
         marketplace_phase_override_reason: Optional[str],
         actor_id: int,
+        reason: Optional[str] = None,
     ) -> Dict[str, Any]:
         if ecosystem_id <= 0:
             return {"success": False, "message": "Invalid ecosystem_id", "data": None}
+        try:
+            existing = self.courses_data.get_project_ecosystem_by_id(ecosystem_id)
+        except Exception as e:
+            return {"success": False, "message": str(e), "data": None}
+        if not existing:
+            return {"success": False, "message": "Project ecosystem not found", "data": None}
+        normalized_reason = (
+            reason.strip()
+            if isinstance(reason, str) and reason.strip()
+            else None
+        )
+        if existing.get("active") is not False and active is False and normalized_reason is None:
+            return {
+                "success": False,
+                "message": "Project ecosystem deactivation requires an audit reason.",
+                "data": None,
+            }
         try:
             normalized_phase_override = self._normalize_marketplace_phase_override(
                 marketplace_phase_override
@@ -423,7 +458,7 @@ class CoursesBusinessLogic:
                     else None
                 ),
                 actor_id=actor_id,
-                reason="admin_project_ecosystem_management",
+                reason=normalized_reason or "admin_project_ecosystem_management",
             )
         except Exception as e:
             return {"success": False, "message": str(e), "data": None}

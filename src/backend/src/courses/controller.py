@@ -39,6 +39,7 @@ class UpdateCourseRequest(BaseModel):
     marketplace_phase_override: Optional[str] = Field(default=None, max_length=32)
     marketplace_phase_override_reason: Optional[str] = Field(default=None, max_length=2000)
     requires_project_support: Optional[bool] = None
+    reason: Optional[str] = Field(default=None, max_length=2000)
 
 
 class UpdateProjectEcosystemRequest(BaseModel):
@@ -46,6 +47,7 @@ class UpdateProjectEcosystemRequest(BaseModel):
     active: Optional[bool] = None
     marketplace_phase_override: Optional[str] = Field(default=None, max_length=32)
     marketplace_phase_override_reason: Optional[str] = Field(default=None, max_length=2000)
+    reason: Optional[str] = Field(default=None, max_length=2000)
 
 
 class CoursePipelineEdgeRequest(BaseModel):
@@ -236,6 +238,7 @@ async def update_project_ecosystem(
         marketplace_phase_override=request.marketplace_phase_override,
         marketplace_phase_override_reason=request.marketplace_phase_override_reason,
         actor_id=int(current_user["user_id"]),
+        reason=request.reason,
     )
     if not result["success"]:
         code = 404 if "not found" in result["message"].lower() else 400
@@ -325,6 +328,7 @@ async def update_course(
         marketplace_phase_override_reason_supplied=_field_supplied(request, "marketplace_phase_override_reason"),
         requires_project_support=request.requires_project_support,
         actor_id=int(current_user["user_id"]),
+        reason=request.reason,
     )
     if not result["success"]:
         code = 404 if "not found" in result["message"].lower() else 400

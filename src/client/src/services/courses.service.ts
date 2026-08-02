@@ -229,6 +229,7 @@ export async function updateCourse(
         marketplace_phase_override?: MarketplacePhase | null;
         marketplace_phase_override_reason?: string | null;
         requires_project_support?: boolean;
+        reason?: string | null;
     }
 ): Promise<Course> {
     const response = await apiFetch(buildApiUrl(`/api/v1/courses/${courseId}`), {
@@ -352,6 +353,7 @@ export async function updateProjectEcosystem(
         active?: boolean;
         marketplace_phase_override?: MarketplacePhase | null;
         marketplace_phase_override_reason?: string | null;
+        reason?: string | null;
     }
 ): Promise<ProjectEcosystem> {
     const body: {
@@ -359,10 +361,12 @@ export async function updateProjectEcosystem(
         active?: boolean;
         marketplace_phase_override: MarketplacePhase | null;
         marketplace_phase_override_reason: string | null;
+        reason: string | null;
     } = {
         description: payload.description ?? null,
         marketplace_phase_override: payload.marketplace_phase_override ?? null,
         marketplace_phase_override_reason: payload.marketplace_phase_override_reason ?? null,
+        reason: payload.reason ?? null,
     };
     if ("active" in payload) {
         body.active = payload.active;
