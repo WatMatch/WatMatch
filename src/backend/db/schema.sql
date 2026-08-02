@@ -1,4 +1,4 @@
--- Courses
+﻿-- Courses
 create table if not exists courses (
   course_id    bigint generated always as identity primary key,
   code         text not null,          -- e.g. 'SE 390'
@@ -1578,7 +1578,7 @@ with seeded_course_offerings (
       'i-Capstone',
       true,
       'Students retain the enrollment route approved for their home program.',
-      'Draft copied from Winter 2026 Global Engagement continuation pattern; confirm Winter 2027 Schedule of Classes before activation and registrar routing.',
+      'Winter 2027 draft follows the Winter 2026 Global Engagement continuation pattern; confirm the Schedule of Classes before activation and registrar routing.',
       'https://uwaterloo.ca/centre-for-work-integrated-learning/courses/capstone'
     ),
     (
@@ -1594,7 +1594,7 @@ with seeded_course_offerings (
       'i-Capstone',
       true,
       'Students retain the enrollment route approved for their home program.',
-      'Draft copied from Winter 2026 Global Engagement continuation pattern; confirm Winter 2027 Schedule of Classes before activation and registrar routing.',
+      'Winter 2027 draft follows the Winter 2026 Global Engagement continuation pattern; confirm the Schedule of Classes before activation and registrar routing.',
       'https://uwaterloo.ca/centre-for-work-integrated-learning/courses/capstone'
     ),
     (
@@ -1610,7 +1610,7 @@ with seeded_course_offerings (
       'i-Capstone',
       true,
       'Students retain the enrollment route approved for their home program.',
-      'Draft copied from Winter 2026 Global Engagement continuation pattern; confirm Winter 2027 Schedule of Classes before activation and registrar routing.',
+      'Winter 2027 draft follows the Winter 2026 Global Engagement continuation pattern; confirm the Schedule of Classes before activation and registrar routing.',
       'https://uwaterloo.ca/centre-for-work-integrated-learning/courses/capstone'
     ),
     (
@@ -1626,7 +1626,7 @@ with seeded_course_offerings (
       'i-Capstone',
       true,
       'Students retain the enrollment route approved for their home program.',
-      'Draft copied from Winter 2026 Global Engagement continuation pattern; confirm Winter 2027 Schedule of Classes before activation and registrar routing.',
+      'Winter 2027 draft follows the Winter 2026 Global Engagement continuation pattern; confirm the Schedule of Classes before activation and registrar routing.',
       'https://uwaterloo.ca/centre-for-work-integrated-learning/courses/capstone'
     ),
     (
@@ -1642,7 +1642,7 @@ with seeded_course_offerings (
       'i-Capstone',
       true,
       'Students retain the enrollment route approved for their home program.',
-      'Draft copied from Winter 2026 Global Engagement continuation pattern; confirm Winter 2027 Schedule of Classes before activation and registrar routing.',
+      'Winter 2027 draft follows the Winter 2026 Global Engagement continuation pattern; confirm the Schedule of Classes before activation and registrar routing.',
       'https://uwaterloo.ca/centre-for-work-integrated-learning/courses/capstone'
     ),
     (
@@ -1658,7 +1658,7 @@ with seeded_course_offerings (
       'i-Capstone',
       true,
       'Students retain the enrollment route approved for their home program.',
-      'Draft copied from Winter 2026 Global Engagement continuation pattern; confirm Winter 2027 Schedule of Classes before activation and registrar routing.',
+      'Winter 2027 draft follows the Winter 2026 Global Engagement continuation pattern; confirm the Schedule of Classes before activation and registrar routing.',
       'https://uwaterloo.ca/centre-for-work-integrated-learning/courses/capstone'
     )
 ),
@@ -5870,6 +5870,7 @@ declare
   target_team_status text;
   canonical_leader bigint;
   target_team_fk bigint;
+  allow_enrollment_reroute text := lower(coalesce(current_setting('watmatch.allow_membership_enrollment_reroute', true), 'false'));
 begin
   if tg_op = 'DELETE' then
     target_team_fk := old.team_fk;
@@ -5917,7 +5918,9 @@ begin
 
   end if;
 
-  if pg_trigger_depth() < 2 and target_team_fk is not null then
+  if pg_trigger_depth() < 2
+     and target_team_fk is not null
+     and allow_enrollment_reroute not in ('true', '1', 'yes', 'on') then
     select leader_fk
       into canonical_leader
     from teams
@@ -8127,13 +8130,73 @@ begin
       where u.user_id = p_request.requested_by_fk
     ),
     'capstone', (
-      select jsonb_build_object(
-        'capstone_id', c.capstone_id,
-        'title', c.title,
-        'status', c.status,
-        'course_fk', c.course_fk,
-        'team_fk', c.team_fk
-      )
+      select to_jsonb(c)
+        || jsonb_build_object(
+          'capstone_id', c.capstone_id,
+          'title', c.title,
+          'description', c.description,
+          'public_status', case
+            when c.status = 'approved_recruiting' then 'recruiting'
+            when c.status = 'complete' then 'complete'
+            when exists (
+              select 1
+              from teams project_team
+              where project_team.team_id = c.team_fk
+                and project_team.status = 'finalized'
+            ) then 'finalized'
+            else c.status
+          end,
+          'disciplines', coalesce(to_jsonb(c.disciplines), '[]'::jsonb),
+          'department_ids', coalesce(
+            (
+              select jsonb_agg(cd.department_fk order by d.name)
+              from capstone_departments cd
+              join departments d on d.department_id = cd.department_fk
+              where cd.capstone_fk = c.capstone_id
+            ),
+            '[]'::jsonb
+          ),
+          'departments', coalesce(
+            (
+              select jsonb_agg(
+                jsonb_build_object(
+                  'department_id', d.department_id,
+                  'name', d.name,
+                  'active', d.active
+                )
+                order by d.name
+              )
+              from capstone_departments cd
+              join departments d on d.department_id = cd.department_fk
+              where cd.capstone_fk = c.capstone_id
+            ),
+            '[]'::jsonb
+          ),
+          'department', coalesce(
+            (
+              select string_agg(d.name, ', ' order by d.name)
+              from capstone_departments cd
+              join departments d on d.department_id = cd.department_fk
+              where cd.capstone_fk = c.capstone_id
+            ),
+            nullif(array_to_string(coalesce(c.disciplines, '{}'::text[]), ', '), '')
+          ),
+          'skills', coalesce(to_jsonb(c.skills), '[]'::jsonb),
+          'marketplace_phase', watmatch_effective_marketplace_phase_for_capstone(c.capstone_id),
+          'marketplace_phase_context', watmatch_marketplace_phase_context_for_capstone(c.capstone_id),
+          'marketplace_action_state', case
+            when watmatch_capstone_accepts_marketplace_activity(c.capstone_id) then 'actionable'
+            when exists (
+              select 1
+              from teams project_team
+              where project_team.team_id = c.team_fk
+                and project_team.status = 'finalized'
+            ) then 'finalized'
+            else 'read_only'
+          end,
+          'read_only_reason', watmatch_capstone_marketplace_read_only_reason(c.capstone_id),
+          'support_summary', watmatch_capstone_support_summary(c.capstone_id)
+        )
       from capstones c
       where c.capstone_id = p_request.capstone_fk
     ),
@@ -13546,6 +13609,13 @@ begin
       raise exception 'Course not found.' using errcode = 'P0002';
     end if;
 
+    if lower(coalesce(v_course.activation_mode, 'auto')) <> 'force_inactive'
+       and v_activation_mode = 'force_inactive'
+       and v_reason is null then
+      raise exception 'Forcing a course inactive requires an audit reason.'
+        using errcode = '23514';
+    end if;
+
     if v_course.active is true
        and watmatch_course_should_be_active(v_active_terms, v_activation_mode, p_course_id) is false
        and exists (
@@ -14225,6 +14295,13 @@ begin
 
   v_active := coalesce(p_active, v_ecosystem.active, true);
 
+  if coalesce(v_ecosystem.active, true) is true
+     and v_active is false
+     and v_reason is null then
+    raise exception 'Project ecosystem deactivation requires an audit reason.'
+      using errcode = '23514';
+  end if;
+
   if lower(coalesce(v_ecosystem.name, '')) = 'departmental'
      and v_phase_override is not null then
     raise exception 'The Departmental ecosystem uses standard course overrides instead of an ecosystem override.'
@@ -14438,6 +14515,7 @@ declare
   v_department departments%rowtype;
   v_name text := nullif(btrim(coalesce(p_name, '')), '');
   v_active boolean := coalesce(p_active, true);
+  v_existing_active boolean;
   v_action text;
   v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
 begin
@@ -14471,6 +14549,19 @@ begin
     returning * into v_department;
     v_action := 'department_created';
   else
+    select active
+    into v_existing_active
+    from departments
+    where department_id = p_department_id;
+
+    if not found then
+      raise exception 'Department not found.' using errcode = 'P0002';
+    end if;
+
+    if v_existing_active is true and v_active is false and v_reason is null then
+      raise exception 'A reason is required to deactivate a department.' using errcode = '22023';
+    end if;
+
     update departments
     set name = v_name,
         faculty_fk = p_faculty_id,
@@ -18235,6 +18326,19 @@ begin
 end;
 $$;
 
+-- Adding the enrollment-routes parameter created a new overload on existing databases.
+-- Remove the legacy signature so calls using the defaulted parameters stay unambiguous.
+drop function if exists watmatch_apply_marketplace_commitment(
+  bigint,
+  bigint,
+  bigint,
+  text,
+  text,
+  bigint,
+  text,
+  boolean
+);
+
 create or replace function watmatch_apply_marketplace_commitment(
   p_exploration_id bigint,
   p_commitment_request_id bigint,
@@ -18810,7 +18914,8 @@ begin
       'course_enrolled',
       r.target_course_fk,
       coalesce(v_reason, r.comments, 'Auto-routed same-course marketplace commitment after course assignment.'),
-      true
+      true,
+      null::jsonb
     );
     v_count := v_count + 1;
   end loop;
@@ -18876,11 +18981,15 @@ begin
       'course_enrolled',
       r.target_course_fk,
       coalesce(r.comments, 'Auto-routed same-course marketplace commitment.'),
-      true
+      true,
+      null::jsonb
     );
   end loop;
 end;
 $$;
+
+drop function if exists watmatch_upsert_project_exploration(bigint, bigint, text, text, bigint, text, integer);
+drop function if exists watmatch_upsert_project_exploration(bigint, bigint, text, text, bigint, text, integer, text);
 
 create or replace function watmatch_upsert_project_exploration(
   p_capstone_id bigint,
@@ -19168,7 +19277,8 @@ begin
     'student_marketplace',
     p_student_id,
     p_message,
-    null
+    null::integer,
+    null::text
   );
 
   return jsonb_build_object(
@@ -19293,8 +19403,9 @@ begin
     'exploring',
     'project_interest_acceptance',
     p_actor_id,
-    null,
-    null
+    null::text,
+    null::integer,
+    null::text
   );
 
   insert into audit_log (actor_fk, actor_role, action, entity_type, entity_id, reason, metadata)
@@ -19464,8 +19575,9 @@ begin
     'invited',
     'team_invite',
     p_actor_id,
-    null,
-    null
+    null::text,
+    null::integer,
+    null::text
   );
 
   return jsonb_build_object(
@@ -19556,8 +19668,9 @@ begin
     'exploring',
     'invite_acceptance',
     p_user_id,
-    null,
-    null
+    null::text,
+    null::integer,
+    null::text
   );
 
   insert into audit_log (actor_fk, actor_role, action, entity_type, entity_id, reason, metadata)
@@ -19623,10 +19736,13 @@ begin
 end;
 $$;
 
+drop function if exists watmatch_revoke_invite(text, bigint, text);
+
 create or replace function watmatch_revoke_invite(
   p_invite_id text,
   p_actor_id bigint,
-  p_actor_role text default 'student'
+  p_actor_role text default 'student',
+  p_reason text default null
 )
 returns jsonb
 language plpgsql
@@ -19636,11 +19752,20 @@ as $$
 declare
   v_invite_id text := nullif(btrim(coalesce(p_invite_id, '')), '');
   v_role text := lower(coalesce(p_actor_role, 'student'));
+  v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
   v_exploration project_explorations%rowtype;
   v_team teams%rowtype;
 begin
   if v_invite_id is null or p_actor_id is null or v_invite_id !~ '^[0-9]+$' then
     raise exception 'Invalid invite revoke request.' using errcode = '22023';
+  end if;
+
+  if v_reason is not null and char_length(v_reason) > 2000 then
+    raise exception 'Invite revocation reason must be 2000 characters or fewer.' using errcode = '22023';
+  end if;
+
+  if v_role in ('admin', 'instructor') and v_reason is null then
+    raise exception 'Staff invite revocation requires an audit reason.' using errcode = '23514';
   end if;
 
   select *
@@ -19688,6 +19813,24 @@ begin
       updated_at = now()
   where exploration_id = v_exploration.exploration_id
   returning * into v_exploration;
+
+  insert into audit_log (actor_fk, actor_role, action, entity_type, entity_id, reason, metadata)
+  values (
+    p_actor_id,
+    v_role,
+    'project_invite_revoked',
+    'project_exploration',
+    v_exploration.exploration_id::text,
+    coalesce(v_reason, 'Team leader revoked pending invitation.'),
+    watmatch_project_exploration_json(v_exploration) || jsonb_build_object(
+      'previous_status', 'invited',
+      'new_status', 'declined',
+      'team_fk', v_team.team_id,
+      'student_fk', v_exploration.student_fk,
+      'student_id', v_exploration.student_fk,
+      'staff_initiated', v_role in ('admin', 'instructor')
+    )
+  );
 
   return jsonb_build_object(
     'success', true,
@@ -20061,7 +20204,8 @@ begin
       'course_enrolled',
       v_target_course_fk,
       coalesce(v_comments, 'Same-course marketplace commitment confirmed.'),
-      true
+      true,
+      null::jsonb
     );
 
     return jsonb_build_object(

@@ -837,6 +837,17 @@ class CoursesDataLogic:
             })
         return rows
 
+    def get_project_ecosystem_by_id(self, ecosystem_id: int) -> Optional[Dict[str, Any]]:
+        response = (
+            supabase.table("project_ecosystems")
+            .select("*")
+            .eq("ecosystem_id", ecosystem_id)
+            .execute()
+        )
+        if not response.data:
+            return None
+        return response.data[0]
+
     def get_course_by_id(self, course_id: int) -> Optional[Dict[str, Any]]:
         response = supabase.table(self.table_name).select(
             "*").eq("course_id", course_id).execute()

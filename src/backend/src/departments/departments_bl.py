@@ -67,6 +67,7 @@ class DepartmentsBusinessLogic:
         active: Optional[bool],
         faculty_id: Optional[int],
         actor_id: int,
+        reason: Optional[str] = None,
     ) -> Dict[str, Any]:
         if department_id <= 0:
             return {"success": False, "message": "Invalid department_id", "data": None}
@@ -80,14 +81,23 @@ class DepartmentsBusinessLogic:
                 return {"success": False, "message": "Department name is required", "data": None}
             next_name = name.strip()
 
+        next_active = existing.get("active") is True if active is None else bool(active)
+        clean_reason = reason.strip() if reason and reason.strip() else None
+        if existing.get("active") is True and next_active is False and not clean_reason:
+            return {
+                "success": False,
+                "message": "A reason is required to deactivate a department",
+                "data": None,
+            }
+
         try:
             return self.departments_data.upsert_department_rpc(
                 department_id=department_id,
                 name=next_name,
-                active=existing.get("active") is True if active is None else bool(active),
+                active=next_active,
                 actor_id=actor_id,
                 faculty_id=existing.get("faculty_fk") if faculty_id is None else faculty_id,
-                reason="admin_department_management",
+                reason=clean_reason or "admin_department_management",
             )
         except Exception as e:
             return {"success": False, "message": str(e), "data": None}

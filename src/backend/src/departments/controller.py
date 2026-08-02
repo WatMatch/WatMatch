@@ -19,6 +19,7 @@ class UpdateDepartmentRequest(BaseModel):
     name: Optional[str] = Field(default=None, max_length=200)
     active: Optional[bool] = None
     faculty_id: Optional[int] = None
+    reason: Optional[str] = Field(default=None, max_length=2000)
 
 
 @router.get("/")
@@ -79,6 +80,7 @@ async def update_department(
         active=request.active,
         faculty_id=request.faculty_id,
         actor_id=int(current_user["user_id"]),
+        reason=request.reason,
     )
     if not result["success"]:
         code = 404 if "not found" in result["message"].lower() else 400
