@@ -1,24 +1,18 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { UserProvider } from "@/contexts/UserContext";
 import LayoutContent from "@/components/LayoutContent";
 
-const geistSans = Geist({
-    variable: "--font-geist-sans",
-    subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-    variable: "--font-geist-mono",
-    subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
     title: "WatMatch",
     description:
-        "Connect with innovative teams, mentors, and industry partners across Canada to bring your final-year projects to life.",
+        "Creating Canada's largest capstone ecosystem for student teams, instructor review, past capstone discovery, and external partner opportunities.",
+    icons: {
+        icon: "/favicon.png",
+        shortcut: "/favicon.png",
+        apple: "/logo-favicon.png",
+    },
 };
 
 export default function RootLayout({
@@ -28,9 +22,12 @@ export default function RootLayout({
 }>) {
     return (
         <html lang="en">
-            <body
-                className={`${geistSans.variable} ${geistMono.variable} antialiased h-screen flex flex-col`}
-            >
+            <head>
+                <link rel="icon" href="/favicon.png" sizes="any" />
+                <link rel="shortcut icon" href="/favicon.png" />
+                <link rel="apple-touch-icon" href="/logo-favicon.png" />
+            </head>
+            <body className="flex min-h-dvh flex-col antialiased">
                 <AuthProvider>
                     <UserProvider>
                         <LayoutContent>{children}</LayoutContent>

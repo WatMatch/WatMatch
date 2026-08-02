@@ -1,34 +1,49 @@
 "use client";
 
 import { motion } from "framer-motion";
+import Image from "next/image";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
 export default function WatMatchLanding() {
     return (
-        <div className="min-h-screen bg-background text-foreground flex flex-col transition-colors duration-500">
-            {/* Navbar is provided globally in the app layout */}
+        <div className="flex min-h-screen flex-col bg-background text-foreground transition-colors duration-500">
+            <main className="flex flex-1 flex-col items-center justify-center bg-card px-6 py-20 text-center">
+                <motion.div
+                    initial={{ opacity: 0, y: -12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4 }}
+                    className="mb-8"
+                >
+                    <Image
+                        src="/logo-horizontal.png"
+                        alt="WatMatch"
+                        width={260}
+                        height={59}
+                        className="h-auto"
+                        priority
+                    />
+                </motion.div>
 
-            {/* Hero Section */}
-            <main className="flex flex-col items-center justify-center flex-1 text-center px-6 py-20 bg-card">
-                <motion.h2
+                <motion.h1
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.6 }}
-                    className="text-5xl md:text-6xl font-extrabold mb-6 text-primary"
+                    className="mb-6 max-w-5xl text-4xl font-extrabold tracking-[-0.035em] text-primary md:text-5xl"
                 >
-                    {"Canada's Largest Capstone Ecosystem"}
-                </motion.h2>
+                    Creating Canada&apos;s Largest Capstone Ecosystem
+                </motion.h1>
 
                 <motion.p
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.8 }}
-                    className="text-lg md:text-xl text-muted-foreground max-w-2xl mb-10"
+                    className="mb-10 max-w-2xl text-lg leading-8 text-muted-foreground md:text-xl"
                 >
-                    Connect with innovative teams, mentors, and industry
-                    partners across Canada to bring your final-year projects to
-                    life.
+                    WatMatch helps students form teams, submit capstone ideas, browse
+                    approved projects, and connect with optional external partners who
+                    can support real capstone work.
                 </motion.p>
 
                 <motion.div
@@ -36,45 +51,38 @@ export default function WatMatchLanding() {
                     animate={{ opacity: 1 }}
                     transition={{ delay: 0.5, duration: 0.8 }}
                 >
-                    <Button
-                        size="lg"
-                        className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-2xl px-8 py-6 text-lg"
-                    >
-                        Get Started
+                    <Button asChild size="lg" className="px-8 text-base font-semibold">
+                        <Link href="/login">Log in</Link>
                     </Button>
                 </motion.div>
             </main>
 
-            {/* Feature Section */}
-            <section id="features" className="py-20 bg-background">
-                <div className="max-w-6xl mx-auto px-6 text-center">
-                    <h3 className="text-3xl font-bold text-primary mb-12">
-                        Why WatMatch?
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <section id="features" className="bg-background py-20">
+                <div className="mx-auto max-w-6xl px-6 text-center">
+                    <h2 className="mb-12 text-3xl font-bold text-primary">
+                        What WatMatch Supports
+                    </h2>
+                    <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
                         {[
                             {
-                                title: "Team Collaboration",
-                                desc: "Find and collaborate with students across disciplines and universities.",
+                                title: "Student Teams",
+                                desc: "Students can form teams, invite classmates, and manage capstone submissions.",
                             },
                             {
-                                title: "Mentorship Access",
-                                desc: "Get guidance from industry professionals and professors to strengthen your project.",
+                                title: "External Partners",
+                                desc: "Teams can connect with labs, hospitals, companies, nonprofits, and domain experts.",
                             },
                             {
-                                title: "Industry Connections",
-                                desc: "Pitch your capstone ideas to potential employers and startups.",
+                                title: "Instructor Review",
+                                desc: "Instructors can approve, reject, or request changes for teams in their course.",
                             },
-                        ].map((feature, i) => (
-                            <Card
-                                key={i}
-                                className="bg-card border-border text-foreground shadow-sm hover:shadow-md transition"
-                            >
+                        ].map((feature) => (
+                            <Card key={feature.title} className="transition-shadow hover:shadow-md">
                                 <CardContent className="p-6">
-                                    <h4 className="text-xl font-semibold mb-3 text-primary">
+                                    <h3 className="mb-3 text-xl font-semibold text-primary">
                                         {feature.title}
-                                    </h4>
-                                    <p className="text-muted-foreground">
+                                    </h3>
+                                    <p className="leading-6 text-muted-foreground">
                                         {feature.desc}
                                     </p>
                                 </CardContent>
@@ -84,9 +92,8 @@ export default function WatMatchLanding() {
                 </div>
             </section>
 
-            {/* Footer */}
-            <footer className="py-6 border-t border-border text-center text-muted-foreground text-sm bg-card">
-                © {new Date().getFullYear()} WatMatch. All rights reserved.
+            <footer className="border-t border-border bg-card py-6 text-center text-sm text-muted-foreground">
+                &copy; {new Date().getFullYear()} WatMatch. All rights reserved.
             </footer>
         </div>
     );

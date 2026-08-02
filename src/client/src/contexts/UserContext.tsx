@@ -5,6 +5,7 @@ import {
     useContext,
     useState,
     useCallback,
+    useEffect,
     ReactNode,
 } from "react";
 
@@ -44,6 +45,17 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export function UserProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<UserData | null>(null);
+
+    useEffect(() => {
+        const cachedUser = localStorage.getItem("userData");
+        if (!cachedUser) return;
+
+        try {
+            setUser(JSON.parse(cachedUser) as UserData);
+        } catch {
+            localStorage.removeItem("userData");
+        }
+    }, []);
 
     const setUserData = useCallback((userData: UserData | null) => {
         setUser(userData);

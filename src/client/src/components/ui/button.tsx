@@ -1,29 +1,30 @@
 import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
+import { Loader2 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-45 active:translate-y-px focus-visible:ring-2 focus-visible:ring-slate-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-white aria-invalid:border-destructive aria-invalid:ring-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        default: "bg-slate-900 text-white shadow-sm hover:bg-slate-800",
         destructive:
-          "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
+          "bg-red-600 text-white shadow-sm hover:bg-red-700 focus-visible:ring-red-400/50",
         outline:
-          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
+          "border border-slate-300 bg-white text-slate-700 shadow-sm hover:border-slate-400 hover:bg-slate-50 hover:text-slate-950",
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+          "bg-slate-100 text-slate-800 hover:bg-slate-200",
         ghost:
-          "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
-        link: "text-primary underline-offset-4 hover:underline",
+          "text-slate-600 hover:bg-slate-100 hover:text-slate-950",
+        link: "h-auto rounded-sm p-0 text-slate-800 underline-offset-4 hover:text-slate-950 hover:underline active:translate-y-0",
       },
       size: {
-        default: "h-9 px-4 py-2 has-[>svg]:px-3",
-        sm: "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
-        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
+        default: "h-9 px-4 py-2 has-[>svg]:px-3.5",
+        sm: "h-8 gap-1.5 rounded-md px-3 text-xs has-[>svg]:px-2.5",
+        lg: "h-10 px-5 has-[>svg]:px-4",
         icon: "size-9",
         "icon-sm": "size-8",
         "icon-lg": "size-10",
@@ -41,19 +42,60 @@ function Button({
   variant,
   size,
   asChild = false,
+  loading = false,
+  loadingLabel,
+  children,
+  disabled,
+  "aria-label": ariaLabel,
+  onClick,
+  tabIndex,
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean
+    loading?: boolean
+    loadingLabel?: string
   }) {
-  const Comp = asChild ? Slot : "button"
+  const classes = cn(
+    buttonVariants({ variant, size, className }),
+    asChild && (disabled || loading) && "pointer-events-none opacity-45"
+  )
+
+  if (asChild) {
+    return (
+      <Slot
+        data-slot="button"
+        data-loading={loading || undefined}
+        className={classes}
+        aria-busy={loading || undefined}
+        aria-label={loading && loadingLabel ? loadingLabel : ariaLabel}
+        aria-disabled={disabled || loading ? true : undefined}
+        tabIndex={disabled || loading ? -1 : tabIndex}
+        onClick={onClick}
+        {...props}
+      >
+        {children}
+      </Slot>
+    )
+  }
 
   return (
-    <Comp
+    <button
       data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
+      data-loading={loading || undefined}
+      className={classes}
+      aria-busy={loading || undefined}
+      aria-label={loading && loadingLabel ? loadingLabel : ariaLabel}
+      disabled={disabled || loading}
+      tabIndex={tabIndex}
+      onClick={onClick}
       {...props}
-    />
+    >
+      {loading ? (
+        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+      ) : null}
+      {children}
+    </button>
   )
 }
 
