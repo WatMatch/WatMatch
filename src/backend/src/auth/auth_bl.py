@@ -21,26 +21,40 @@ class AuthBusinessLogic:
         course_fk = user_response.get("course_fk")
         user_response["course"] = None
         user_response["course_active"] = None
-        if course_fk is None:
-            return user_response
+        user_response["home_department"] = None
+        user_response["home_department_id"] = user_response.get("home_department_fk")
+        if course_fk is not None:
+            try:
+                course_res = (
+                    supabase.table("courses")
+                    .select("course_id,code,name,active,active_terms,activation_mode,department_fk,routing_kind,requires_project_support")
+                    .eq("course_id", course_fk)
+                    .limit(1)
+                    .execute()
+                )
+                course = (course_res.data or [None])[0]
+                user_response["course"] = course
+                user_response["course_active"] = bool(course.get("active")) if course else False
+            except Exception:
+                user_response["course_active"] = False
 
-        try:
-            course_res = (
-                supabase.table("courses")
-                .select("course_id,code,name,term,active")
-                .eq("course_id", course_fk)
-                .limit(1)
-                .execute()
-            )
-            course = (course_res.data or [None])[0]
-            user_response["course"] = course
-            user_response["course_active"] = bool(course.get("active")) if course else False
-        except Exception:
-            user_response["course_active"] = False
+        home_department_fk = user_response.get("home_department_fk")
+        if home_department_fk is not None:
+            try:
+                department_res = (
+                    supabase.table("departments")
+                    .select("department_id,name,active")
+                    .eq("department_id", home_department_fk)
+                    .limit(1)
+                    .execute()
+                )
+                user_response["home_department"] = (department_res.data or [None])[0]
+            except Exception:
+                user_response["home_department"] = None
         return user_response
 
     def login(self, email: str) -> Dict[str, Any]:
-        """Authenticate user and return tokens (password validation to be implemented later)"""
+        """Authenticate an admin-provisioned local/demo user by email."""
         try:
             # Validate inputs
             if not email or not email.strip():
@@ -71,7 +85,8 @@ class AuthBusinessLogic:
                 "user_id": user["user_id"],
                 "email": user["email"],
                 "role": user["role"],
-                "course_fk": user.get("course_fk")
+                "course_fk": user.get("course_fk"),
+                "home_department_fk": user.get("home_department_fk"),
             }
 
             access_token = create_access_token(token_data)
@@ -147,7 +162,8 @@ class AuthBusinessLogic:
                 "user_id": user["user_id"],
                 "email": user["email"],
                 "role": user["role"],
-                "course_fk": user.get("course_fk")
+                "course_fk": user.get("course_fk"),
+                "home_department_fk": user.get("home_department_fk"),
             }
 
             new_access_token = create_access_token(token_data)

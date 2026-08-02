@@ -750,11 +750,21 @@ class CapstonesBusinessLogic:
         expertise_tags: Optional[list[str]] = None,
         max_active_projects: Optional[int] = None,
     ) -> Dict[str, Any]:
+        normalized_role = (actor_role or "").lower()
+        resolved_mentor_id = mentor_id if mentor_id is not None else actor_id
+        if normalized_role != "mentor":
+            return {"success": False, "message": "Mentor access required.", "data": None}
+        if resolved_mentor_id != actor_id:
+            return {
+                "success": False,
+                "message": "Mentors can only edit their own profile.",
+                "data": None,
+            }
         try:
             return self.capstones_data.upsert_mentor_profile_rpc(
                 actor_id=actor_id,
-                actor_role=actor_role or "",
-                mentor_id=mentor_id,
+                actor_role=normalized_role,
+                mentor_id=resolved_mentor_id,
                 display_name=display_name.strip() if display_name and display_name.strip() else None,
                 primary_department_id=primary_department_id,
                 department_ids=department_ids or [],

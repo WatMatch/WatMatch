@@ -104,6 +104,14 @@ async def get_audit_log(
     role = (current_user.get("role") or "").lower()
     if role not in {"instructor", "admin"}:
         raise HTTPException(status_code=403, detail="Instructor/admin access required")
+    if role == "instructor":
+        instructor_course_id = current_user.get("course_fk")
+        if instructor_course_id is None:
+            raise HTTPException(status_code=403, detail="Instructor course assignment required")
+        instructor_course_id = int(instructor_course_id)
+        if course_id is not None and int(course_id) != instructor_course_id:
+            raise HTTPException(status_code=403, detail="Forbidden for this course")
+        course_id = instructor_course_id
 
     try:
         result = call_json_rpc(

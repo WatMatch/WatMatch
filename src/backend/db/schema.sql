@@ -8432,11 +8432,11 @@ declare
   v_expertise_tags text[] := '{}'::text[];
   v_profile mentor_profiles%rowtype;
 begin
-  if v_role not in ('mentor', 'admin') then
-    raise exception 'Mentor or admin access required.' using errcode = '42501';
+  if v_role <> 'mentor' then
+    raise exception 'Mentor access required.' using errcode = '42501';
   end if;
 
-  if v_role = 'mentor' and v_mentor_id is distinct from p_actor_id then
+  if v_mentor_id is distinct from p_actor_id then
     raise exception 'Mentors can only edit their own profile.' using errcode = '42501';
   end if;
 
@@ -15115,6 +15115,16 @@ begin
 
   if v_role not in ('admin', 'instructor') then
     raise exception 'Instructor/admin access required.' using errcode = '42501';
+  end if;
+
+  if v_role = 'instructor' then
+    if v_actor.course_fk is null then
+      raise exception 'Instructor course assignment required.' using errcode = '42501';
+    end if;
+    if v_course_id is not null and v_course_id is distinct from v_actor.course_fk then
+      raise exception 'Forbidden for this course.' using errcode = '42501';
+    end if;
+    v_course_id := v_actor.course_fk;
   end if;
 
   if v_course_id is not null

@@ -1,10 +1,26 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+    FinalizationReadiness,
+    getCapstoneStatusLabel,
+    OfficialTeamRoster,
+    ProjectSupportSummary,
+} from "@/components/capstones/CapstoneCard";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TaxonomyChip } from "@/components/ui/taxonomy-chip";
+import {
+    ConfirmActionDialog,
+    Disclosure,
+    EmptyState,
+    Notice,
+    PaginationBar,
+    SectionHeader,
+    StatusBadge,
+} from "@/components/ui/workspace";
 import {
     Dialog,
     DialogContent,
@@ -21,9 +37,8 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { userContext } from "@/contexts/UserContext";
-import { Menu } from "lucide-react";
+import { Loader2, Users } from "lucide-react";
 import {
     deleteTeam,
     fetchTeamInvites,
@@ -31,6 +46,9 @@ import {
     finalizeTeam,
     reassignLeader,
     revokeInvite,
+    type CapstoneReadinessItem,
+    type CapstoneTeamContext,
+    type CapstoneTeamContextMember,
     type TeamPendingInvite,
 } from "@/services/teams.service";
 import { fetchUserById } from "@/services/users.service";
@@ -126,44 +144,6 @@ interface TeamsApiResponse {
 
 const NO_MENTOR = "none";
 
-type ReadinessItem = {
-    label: string;
-    ready: boolean;
-    detail: string;
-};
-
-function FinalizationReadinessChecklist({ items }: { items: ReadinessItem[] }) {
-    const readyCount = items.filter((item) => item.ready).length;
-    return (
-        <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Finalization Readiness
-                </p>
-                <span className="text-xs text-slate-500">
-                    {readyCount}/{items.length} ready
-                </span>
-            </div>
-            <ul className="mt-3 space-y-2">
-                {items.map((item) => (
-                    <li key={item.label} className="flex gap-2 text-sm">
-                        <span
-                            className={`mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ${
-                                item.ready ? "bg-emerald-500" : "bg-amber-400"
-                            }`}
-                            aria-hidden="true"
-                        />
-                        <div>
-                            <p className="font-medium text-slate-800">{item.label}</p>
-                            <p className="text-xs text-slate-600">{item.detail}</p>
-                        </div>
-                    </li>
-                ))}
-            </ul>
-        </div>
-    );
-}
-
 interface EnrichedTeamRecord extends TeamRecord {
     resolvedMembers?: string[] | null;
     resolvedCapstoneTitle?: string | null;
@@ -179,25 +159,31 @@ const formatStatusLabel = (value?: string) => {
     if (!trimmed) {
         return null;
     }
-    if (trimmed.toLowerCase() === "pending_admin_course_routing") {
-        return "Awaiting Course Routing";
-    }
-    if (trimmed.toLowerCase() === "pending_review") {
-        return "Awaiting Instructor Review";
-    }
-    if (trimmed.toLowerCase() === "draft") {
-        return "Draft";
-    }
-    if (trimmed.toLowerCase() === "approved_recruiting") {
-        return "Approved - Recruiting";
-    }
-    if (trimmed.toLowerCase() === "complete") {
-        return "Complete";
-    }
+    const capstoneStatusLabel = getCapstoneStatusLabel(trimmed);
+    if (capstoneStatusLabel) return capstoneStatusLabel;
 
     return trimmed
         .replace(/_/g, " ")
         .replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
+const getTeamStatusTone = (
+    value?: string | null
+): "neutral" | "info" | "success" | "warning" | "danger" | "accent" => {
+    const status = (value || "").toLowerCase();
+    if (["complete", "approved", "finalized"].includes(status)) return "success";
+    if (["rejected", "declined", "archived"].includes(status)) return "danger";
+    if (
+        [
+            "pending_review",
+            "pending_admin_course_routing",
+            "pending",
+        ].includes(status)
+    ) {
+        return "warning";
+    }
+    if (["approved_recruiting", "recruiting"].includes(status)) return "info";
+    return "neutral";
 };
 
 const getNumericTeamMemberIds = (team?: TeamRecord | null) => {
@@ -242,25 +228,6 @@ const getMemberOptionLabel = (team: EnrichedTeamRecord | null, memberId: number)
         memberIndex >= 0 ? team?.resolvedMembers?.[memberIndex] : null;
 
     return resolvedName ? `${resolvedName} (#${memberId})` : `User #${memberId}`;
-};
-
-const getMemberDepartmentName = (member?: MemberRecord | null) => {
-    const department = member?.home_department;
-    if (!department) return null;
-    if (typeof department === "string") return department.trim() || null;
-    return department.name?.trim() || null;
-};
-
-const getMemberEnrollmentCourseLabel = (member?: MemberRecord | null) => {
-    if (!member) return null;
-    if (member.enrollment_course?.code) {
-        return member.enrollment_course.code;
-    }
-    if (member.course?.code) {
-        return member.course.code;
-    }
-    const fallbackId = member.enrollment_course_fk ?? member.course_fk;
-    return fallbackId ? `Course #${fallbackId}` : null;
 };
 
 const memberHasReadyEnrollmentCourse = (
@@ -446,10 +413,11 @@ export function CapstoneTeamsSection() {
     }, [page, totalPages]);
 
     useEffect(() => {
-        if (homeDepartmentName && departmentFilter === "All") {
-            setDepartmentFilter(homeDepartmentName);
-        }
-    }, [departmentFilter, homeDepartmentName]);
+        if (!homeDepartmentName) return;
+        setDepartmentFilter((currentDepartment) =>
+            currentDepartment === "All" ? homeDepartmentName : currentDepartment
+        );
+    }, [homeDepartmentName]);
 
     useEffect(() => {
         if (!canManageTeams) return;
@@ -949,7 +917,7 @@ export function CapstoneTeamsSection() {
 
     const getTeamMeta = (team: EnrichedTeamRecord) => {
         if (getLinkedStatus(team) === "complete") {
-            return "Complete";
+            return getCapstoneStatusLabel("complete");
         }
         if ((team.status || "").toLowerCase() === "finalized") {
             return "Finalized";
@@ -967,7 +935,9 @@ export function CapstoneTeamsSection() {
             status === "pending_admin_course_routing";
     };
 
-    const buildFinalizationReadinessItems = (team: EnrichedTeamRecord | null): ReadinessItem[] => {
+    const buildFinalizationReadinessItems = (
+        team: EnrichedTeamRecord | null
+    ): CapstoneReadinessItem[] => {
         if (!team) return [];
         const capstoneId = getCapstoneId(team);
         const capstoneKey = capstoneId !== null ? String(capstoneId) : "";
@@ -991,6 +961,7 @@ export function CapstoneTeamsSection() {
 
         return [
             {
+                key: "instructor_approval",
                 label: "Capstone approved for recruiting",
                 ready: getLinkedStatus(team) === "approved_recruiting",
                 detail:
@@ -999,6 +970,7 @@ export function CapstoneTeamsSection() {
                         : "Only approved recruiting projects can be finalized.",
             },
             {
+                key: "project_support",
                 label: "Required support satisfied",
                 ready: supportSatisfied,
                 detail: supportLoading
@@ -1008,6 +980,7 @@ export function CapstoneTeamsSection() {
                       : "Attach an accepted mentor or confirmed external partner first.",
             },
             {
+                key: "staff_routing",
                 label: "No pending staff routing",
                 ready: pendingCommitmentCount === 0,
                 detail:
@@ -1016,6 +989,7 @@ export function CapstoneTeamsSection() {
                         : `${pendingCommitmentCount} commitment routing item${pendingCommitmentCount === 1 ? "" : "s"} must be resolved first.`,
             },
             {
+                key: "confirmed_explorations",
                 label: "No unresolved confirmed explorations",
                 ready: unresolvedConfirmedCount === 0,
                 detail:
@@ -1024,6 +998,7 @@ export function CapstoneTeamsSection() {
                         : "Resolve mutually confirmed explorations before finalizing.",
             },
             {
+                key: "team_identity",
                 label: "Team identity valid",
                 ready: teamIdentityValid,
                 detail: teamIdentityValid
@@ -1031,6 +1006,7 @@ export function CapstoneTeamsSection() {
                     : "A finalized team needs at least one member and a leader.",
             },
             {
+                key: "official_enrollment",
                 label: "Official enrollment courses valid",
                 ready: enrollmentCoursesValid,
                 detail: enrollmentCoursesValid
@@ -1038,6 +1014,25 @@ export function CapstoneTeamsSection() {
                     : "Each official member needs an active staffed enrollment course before finalization.",
             },
         ];
+    };
+
+    const buildReadinessSummary = (
+        team: EnrichedTeamRecord | null
+    ): CapstoneTeamContext["readiness"] => {
+        const items = buildFinalizationReadinessItems(team);
+        const readyCount = items.filter((item) => item.ready).length;
+        return {
+            ready: items.length > 0 && readyCount === items.length,
+            ready_count: readyCount,
+            total_count: items.length,
+            pending_commitment_request_count: Number(
+                team?.pending_commitment_request_count || 0
+            ),
+            mutually_confirmed_exploration_count: Number(
+                team?.mutually_confirmed_exploration_count || 0
+            ),
+            items,
+        };
     };
 
     const formatMembers = (team: EnrichedTeamRecord) => {
@@ -1251,7 +1246,11 @@ export function CapstoneTeamsSection() {
         }
     };
 
-    const handleRevokeInvite = async (teamId: number, inviteId: string) => {
+    const handleRevokeInvite = async (
+        teamId: number,
+        inviteId: string,
+        reason: string
+    ) => {
         try {
             setRevokingInviteId(inviteId);
             setInviteErrorsByTeamId((current) => {
@@ -1259,7 +1258,7 @@ export function CapstoneTeamsSection() {
                 delete next[teamId];
                 return next;
             });
-            await revokeInvite(inviteId);
+            await revokeInvite(inviteId, reason);
             setTeamInvitesById((current) => ({
                 ...current,
                 [teamId]: (current[teamId] || []).filter(
@@ -1268,10 +1267,13 @@ export function CapstoneTeamsSection() {
             }));
         } catch (err) {
             console.error("Failed to revoke invite:", err);
+            const actionError =
+                err instanceof Error ? err : new Error("Failed to revoke invite.");
             setInviteErrorsByTeamId((current) => ({
                 ...current,
-                [teamId]: err instanceof Error ? err.message : "Failed to revoke invite.",
+                [teamId]: actionError.message,
             }));
+            throw actionError;
         } finally {
             setRevokingInviteId(null);
         }
@@ -1356,7 +1358,8 @@ export function CapstoneTeamsSection() {
 
     const handleStaffCancelMentorRequest = async (
         capstoneId: number,
-        request: MentorRequest
+        request: MentorRequest,
+        reason: string
     ) => {
         const key = String(capstoneId);
         setMentorActionKey(`cancel-${request.mentor_request_id}`);
@@ -1367,18 +1370,20 @@ export function CapstoneTeamsSection() {
         });
         try {
             await cancelMentorRequest(request.mentor_request_id, {
-                reason: "Course staff cancelled the mentor request.",
+                reason,
             });
             await refreshMentorSupport(capstoneId);
         } catch (error) {
             console.error("Failed to cancel mentor request:", error);
+            const actionError =
+                error instanceof Error
+                    ? error
+                    : new Error("Failed to cancel mentor request.");
             setMentorErrorsByCapstoneId((current) => ({
                 ...current,
-                [key]:
-                    error instanceof Error
-                        ? error.message
-                        : "Failed to cancel mentor request.",
+                [key]: actionError.message,
             }));
+            throw actionError;
         } finally {
             setMentorActionKey(null);
         }
@@ -1387,7 +1392,9 @@ export function CapstoneTeamsSection() {
     const handleStaffDecideMentorOffer = async (
         capstoneId: number,
         request: MentorRequest,
-        decision: "accept" | "decline"
+        decision: "accept" | "decline",
+        responseNote?: string,
+        rethrowOnError = false
     ) => {
         const key = String(capstoneId);
         setMentorActionKey(`${decision}-${request.mentor_request_id}`);
@@ -1399,64 +1406,135 @@ export function CapstoneTeamsSection() {
         try {
             await decideMentorOffer(request.mentor_request_id, {
                 decision,
-                response_note: null,
+                response_note: responseNote?.trim() || null,
             });
             await refreshMentorSupport(capstoneId);
         } catch (error) {
             console.error("Failed to save mentor offer decision:", error);
+            const actionError =
+                error instanceof Error
+                    ? error
+                    : new Error("Failed to save mentor offer decision.");
             setMentorErrorsByCapstoneId((current) => ({
                 ...current,
-                [key]:
-                    error instanceof Error
-                        ? error.message
-                        : "Failed to save mentor offer decision.",
+                [key]: actionError.message,
             }));
+            if (rethrowOnError) {
+                throw actionError;
+            }
         } finally {
             setMentorActionKey(null);
         }
     };
 
     return (
-        <section className="space-y-3">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <h2 className="text-xl font-semibold text-slate-900">
-                    Capstone Teams
-                </h2>
-                <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
-                    <SelectTrigger className="w-full sm:w-[300px]">
-                        <SelectValue placeholder="Filter by department" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="All">All Departments</SelectItem>
-                        {departmentOptions.map((department) => (
-                            <SelectItem key={department} value={department}>
-                                {department}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-            </div>
+        <section className="space-y-4" aria-labelledby="capstone-teams-heading">
+            <SectionHeader
+                title={<span id="capstone-teams-heading">Capstone teams</span>}
+                description={
+                    loading
+                        ? "Loading the teams you can manage."
+                        : `${filteredTeams.length} of ${teams.length} team${teams.length === 1 ? "" : "s"} shown. Open a row for roster, readiness, support, and staff actions.`
+                }
+                actions={
+                    <Select
+                        value={departmentFilter}
+                        onValueChange={setDepartmentFilter}
+                    >
+                        <SelectTrigger
+                            className="w-full sm:w-[280px]"
+                            aria-label="Filter teams by department"
+                        >
+                            <SelectValue placeholder="Filter by department" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="All">All departments</SelectItem>
+                            {departmentOptions.map((department) => (
+                                <SelectItem key={department} value={department}>
+                                    {department}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                }
+            />
             {loading ? (
-                <p className="text-sm text-slate-600">Loading teams...</p>
+                <Card
+                    className="flex items-center justify-center gap-2 p-8 text-sm text-slate-600"
+                    role="status"
+                >
+                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                    Loading teams...
+                </Card>
             ) : error ? (
-                <p className="text-sm text-red-600">{error}</p>
+                <Notice tone="danger" title="Teams could not be loaded">
+                    {error}
+                </Notice>
             ) : teams.length === 0 ? (
-                <p className="text-sm text-slate-600">
-                    No capstone teams found.
-                </p>
+                <EmptyState
+                    icon={Users}
+                    title="No capstone teams yet"
+                    description="Teams will appear here once students start forming official project groups."
+                />
             ) : filteredTeams.length === 0 ? (
-                <p className="text-sm text-slate-600">
-                    No capstone teams match this department filter.
-                </p>
+                <EmptyState
+                    icon={Users}
+                    title="No teams match this department"
+                    description="Choose another department or show all departments."
+                    action={
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setDepartmentFilter("All")}
+                        >
+                            Show all departments
+                        </Button>
+                    }
+                />
             ) : (
                 <>
-                    <div className="grid gap-4 grid-cols-1">
+                    <div className="space-y-3">
                         {paginatedTeams.map((team, index) => {
                             const globalIndex = (page - 1) * pageSize + index;
                             const memberList = formatMembers(team);
                             const memberDetails = Array.isArray(team.member_details)
                                 ? team.member_details
                                 : [];
+                            const canonicalMembers: CapstoneTeamContextMember[] =
+                                memberDetails.flatMap((member) => {
+                                    const userId = Number(member.user_id ?? member.id);
+                                    const email = member.email || getMemberDisplayName(member);
+                                    if (!Number.isInteger(userId) || userId <= 0 || !email) {
+                                        return [];
+                                    }
+                                    const homeDepartment =
+                                        typeof member.home_department === "string"
+                                            ? { name: member.home_department }
+                                            : member.home_department;
+                                    return [
+                                        {
+                                            user_id: userId,
+                                            email,
+                                            is_leader: Number(team.leader_fk) === userId,
+                                            course_fk:
+                                                member.course_fk === null ||
+                                                member.course_fk === undefined
+                                                    ? null
+                                                    : Number(member.course_fk),
+                                            course: member.course || null,
+                                            enrollment_course_fk:
+                                                member.enrollment_course_fk === null ||
+                                                member.enrollment_course_fk === undefined
+                                                    ? null
+                                                    : Number(member.enrollment_course_fk),
+                                            enrollment_course:
+                                                member.enrollment_course || null,
+                                            home_department_id:
+                                                member.home_department_id || null,
+                                            home_department: homeDepartment || null,
+                                        },
+                                    ];
+                                });
                             const teamKey = pickTeamKey(team, globalIndex);
                             const numericTeamId = getTeamId(team);
                             const meta = getTeamMeta(team);
@@ -1526,96 +1604,148 @@ export function CapstoneTeamsSection() {
                                 numericCapstoneId !== null &&
                                 (team.status || "").toLowerCase() !== "finalized" &&
                                 getLinkedStatus(team) === "approved_recruiting";
-                            const finalizationReadinessItems =
-                                buildFinalizationReadinessItems(team);
+                            const finalizationReadiness = buildReadinessSummary(team);
                             const coordinatingCourse =
                                 team.course_fk && courseMap[Number(team.course_fk)]
                                     ? courseMap[Number(team.course_fk)]
                                     : null;
+                            const linkedStatus = getLinkedStatus(team);
+                            const statusLabel = meta || "Status unavailable";
+                            const memberCount = Math.max(
+                                canonicalMembers.length,
+                                getNumericTeamMemberIds(team).length,
+                                memberList?.length || 0
+                            );
+                            const remainingReadinessItems = Math.max(
+                                0,
+                                finalizationReadiness.total_count -
+                                    finalizationReadiness.ready_count
+                            );
+                            const nextStaffTask =
+                                linkedStatus === "complete"
+                                    ? "Academic completion is recorded."
+                                    : linkedStatus === "pending_admin_course_routing"
+                                      ? "Resolve the team in the course-routing queue."
+                                      : linkedStatus === "pending_review"
+                                        ? "Complete the instructor review."
+                                        : pendingMentorOffers.length > 0
+                                          ? `Review ${pendingMentorOffers.length} mentor offer${pendingMentorOffers.length === 1 ? "" : "s"}.`
+                                          : canMarkComplete
+                                            ? "Review evidence and record academic completion."
+                                            : canStaffFinalize
+                                              ? finalizationReadiness.ready
+                                                  ? "Ready for staff-assisted finalization."
+                                                  : `Resolve ${remainingReadinessItems} finalization readiness item${remainingReadinessItems === 1 ? "" : "s"}.`
+                                              : linkedStatus === "approved_recruiting"
+                                                ? "Recruiting is active; monitor roster progress."
+                                                : "Review the team context when needed.";
 
                             return (
                                 <Card
                                     key={teamKey}
-                                    className="gap-0 rounded-lg border border-slate-200 bg-white p-0 shadow-sm transition hover:shadow-md"
+                                    className="gap-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-0 shadow-sm"
                                 >
-                                    <div className="p-4 space-y-3">
-                                        <CardTitle className="line-clamp-2 break-words text-lg leading-snug">
-                                            {getTeamTitle(team)}
-                                        </CardTitle>
-                                        {meta && (
-                                            <CardDescription className="break-words text-sm text-slate-600">
-                                                {meta}
-                                            </CardDescription>
-                                        )}
-                                        <p className="break-words text-xs text-slate-500">
-                                            {coordinatingCourse
-                                                ? `Coordinating course: ${coordinatingCourse.code} - ${coordinatingCourse.name}`
-                                                : "Coordinating course: Unspecified"}
-                                        </p>
-                                        {coordinatingCourse && (
-                                            <div className="flex flex-wrap gap-2 text-xs">
-                                                {coordinatingCourse.department?.name && (
-                                                    <span className="rounded bg-slate-100 px-2 py-0.5 text-slate-700">
-                                                        {coordinatingCourse.department.name}
-                                                    </span>
-                                                )}
-                                                {coordinatingCourse.department?.faculty?.name && (
-                                                    <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-700">
-                                                        {coordinatingCourse.department.faculty.name}
-                                                    </span>
-                                                )}
-                                                {coordinatingCourse.ecosystem?.name && (
-                                                    <span className="rounded bg-cyan-50 px-2 py-0.5 text-cyan-700">
-                                                        {coordinatingCourse.ecosystem.name}
-                                                    </span>
-                                                )}
+                                    <Disclosure
+                                        className="rounded-none border-0 bg-transparent shadow-none"
+                                        summaryClassName="px-4 py-4 sm:px-5"
+                                        contentClassName="space-y-4 bg-slate-50/50 px-4 py-4 sm:px-5"
+                                        summary={
+                                            <div className="flex min-w-0 flex-col gap-3 pr-2 sm:flex-row sm:items-start sm:justify-between">
+                                                <div className="min-w-0 space-y-2">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <StatusBadge
+                                                            tone={getTeamStatusTone(
+                                                                linkedStatus || team.status
+                                                            )}
+                                                        >
+                                                            {statusLabel}
+                                                        </StatusBadge>
+                                                        {coordinatingCourse?.code && (
+                                                            <span className="text-xs font-medium text-slate-500">
+                                                                {coordinatingCourse.code}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <h3 className="break-words text-base font-semibold leading-snug text-slate-950 sm:text-lg">
+                                                        {getTeamTitle(team)}
+                                                    </h3>
+                                                    <p className="text-xs text-slate-500">
+                                                        {numericTeamId !== null
+                                                            ? `Team ${numericTeamId} · `
+                                                            : ""}
+                                                        {memberCount} official member
+                                                        {memberCount === 1 ? "" : "s"} ·{" "}
+                                                        {pendingInvites.length} pending invite
+                                                        {pendingInvites.length === 1 ? "" : "s"}
+                                                    </p>
+                                                </div>
+                                                <div className="max-w-md rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 sm:w-72 sm:shrink-0">
+                                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                                        Next staff task
+                                                    </p>
+                                                    <p className="mt-0.5 text-sm font-medium leading-5 text-slate-800">
+                                                        {nextStaffTask}
+                                                    </p>
+                                                    <p className="mt-1 text-xs text-slate-500">
+                                                        Readiness {finalizationReadiness.ready_count}/
+                                                        {finalizationReadiness.total_count}
+                                                    </p>
+                                                </div>
                                             </div>
-                                        )}
+                                        }
+                                    >
+                                        <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                                Coordinating course
+                                            </p>
+                                            <p className="mt-1 break-words text-sm font-medium text-slate-800">
+                                                {coordinatingCourse
+                                                    ? `${coordinatingCourse.code} - ${coordinatingCourse.name}`
+                                                    : "Not specified"}
+                                            </p>
+                                            {coordinatingCourse && (
+                                                <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+                                                    {coordinatingCourse.department?.name && (
+                                                        <TaxonomyChip
+                                                            namespace="department"
+                                                            value={coordinatingCourse.department.name}
+                                                        />
+                                                    )}
+                                                    {coordinatingCourse.department?.faculty?.name && (
+                                                        <span>
+                                                            {coordinatingCourse.department.faculty.name}
+                                                        </span>
+                                                    )}
+                                                    {coordinatingCourse.ecosystem?.name && (
+                                                        <TaxonomyChip
+                                                            namespace="ecosystem"
+                                                            value={coordinatingCourse.ecosystem.name}
+                                                        />
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
                                         {(memberDetails.length > 0 || memberList) && (
                                             <div className="space-y-1">
                                                 <p className="text-xs uppercase tracking-wide text-slate-500">
                                                     Members
                                                 </p>
-                                                <ul className="flex flex-wrap gap-2 text-sm text-slate-700">
-                                                    {memberDetails.length > 0
-                                                        ? memberDetails.map((member, idx) => {
-                                                              const department =
-                                                                  getMemberDepartmentName(member);
-                                                              const enrollmentCourse =
-                                                                  getMemberEnrollmentCourseLabel(
-                                                                      member
-                                                                  );
-                                                              return (
-                                                                  <li
-                                                                      key={`${teamKey}-member-detail-${member.user_id ?? idx}`}
-                                                                      className="flex max-w-full flex-wrap items-center gap-1 rounded-md bg-slate-100 px-2 py-1"
-                                                                  >
-                                                                      <span className="break-all">
-                                                                          {getMemberDisplayName(member) ||
-                                                                              `User #${member.user_id ?? idx + 1}`}
-                                                                      </span>
-                                                                      {department && (
-                                                                          <span className="rounded bg-white px-1.5 py-0.5 text-xs text-slate-600">
-                                                                              {department}
-                                                                          </span>
-                                                                      )}
-                                                                      {enrollmentCourse && (
-                                                                          <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-700">
-                                                                              Enrolled: {enrollmentCourse}
-                                                                          </span>
-                                                                      )}
-                                                                  </li>
-                                                              );
-                                                          })
-                                                        : memberList?.map((member, idx) => (
-                                                             <li
-                                                                 key={`${teamKey}-member-${idx}`}
-                                                                 className="max-w-full break-all rounded-md bg-slate-100 px-2 py-1"
-                                                             >
-                                                                 {member}
-                                                             </li>
-                                                          ))}
-                                                </ul>
+                                                {canonicalMembers.length > 0 ? (
+                                                    <OfficialTeamRoster
+                                                        members={canonicalMembers}
+                                                    />
+                                                ) : (
+                                                    <ul className="grid gap-2 text-sm text-slate-700 lg:grid-cols-2">
+                                                        {memberList?.map((member, idx) => (
+                                                            <li
+                                                                key={`${teamKey}-member-${idx}`}
+                                                                className="min-w-0 rounded-md border border-slate-200 bg-slate-50 p-3 [overflow-wrap:anywhere]"
+                                                            >
+                                                                {member}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                )}
                                             </div>
                                         )}
                                         {numericTeamId !== null && (
@@ -1649,26 +1779,36 @@ export function CapstoneTeamsSection() {
                                                                     <span className="min-w-0 break-all">
                                                                         {inviteeEmail}
                                                                     </span>
-                                                                    <Button
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        onClick={() =>
+                                                                    <ConfirmActionDialog
+                                                                        title="Revoke pending invitation?"
+                                                                        description={`This withdraws the invitation sent to ${inviteeEmail}. The student will no longer be able to accept it.`}
+                                                                        confirmLabel="Revoke invitation"
+                                                                        tone="destructive"
+                                                                        reasonLabel="Revocation reason"
+                                                                        reasonDescription="This reason is saved in the project audit history."
+                                                                        reasonPlaceholder="Explain why this invitation is being withdrawn."
+                                                                        reasonRequired
+                                                                        onConfirm={(reason) =>
                                                                             handleRevokeInvite(
                                                                                 numericTeamId,
-                                                                                invite.invite_id
+                                                                                invite.invite_id,
+                                                                                reason
                                                                             )
                                                                         }
-                                                                        disabled={
-                                                                            revokingInviteId ===
-                                                                            invite.invite_id
+                                                                        trigger={
+                                                                            <Button
+                                                                                variant="outline"
+                                                                                size="sm"
+                                                                                disabled={
+                                                                                    revokingInviteId ===
+                                                                                    invite.invite_id
+                                                                                }
+                                                                                className="h-7 min-w-[4.5rem] shrink-0 text-xs"
+                                                                            >
+                                                                                Revoke
+                                                                            </Button>
                                                                         }
-                                                                        className="h-7 text-xs"
-                                                                    >
-                                                                        {revokingInviteId ===
-                                                                        invite.invite_id
-                                                                            ? "Revoking..."
-                                                                            : "Revoke"}
-                                                                    </Button>
+                                                                    />
                                                                 </li>
                                                             );
                                                         })}
@@ -1677,8 +1817,8 @@ export function CapstoneTeamsSection() {
                                             </div>
                                         )}
                                         {numericCapstoneId !== null && (
-                                            <FinalizationReadinessChecklist
-                                                items={finalizationReadinessItems}
+                                            <FinalizationReadiness
+                                                readiness={finalizationReadiness}
                                             />
                                         )}
                                         {numericCapstoneId !== null && (
@@ -1697,27 +1837,14 @@ export function CapstoneTeamsSection() {
                                                                 {supportError}
                                                             </p>
                                                         )}
-                                                        {acceptedMentor ? (
-                                                            <p className="rounded border border-emerald-100 bg-emerald-50 p-2 text-sm text-emerald-800">
-                                                                Mentor:{" "}
-                                                                <span className="break-all font-medium">
-                                                                    {acceptedMentor.mentor_email ||
-                                                                        `Mentor #${acceptedMentor.mentor_fk}`}
-                                                                </span>
-                                                            </p>
-                                                        ) : support?.external_partner_support_confirmed ? (
-                                                            <p className="rounded border border-emerald-100 bg-emerald-50 p-2 text-sm text-emerald-800">
-                                                                External partner support confirmed.
-                                                            </p>
-                                                        ) : support?.requires_project_support === false ? (
-                                                            <p className="rounded border border-slate-200 bg-white p-2 text-sm text-slate-600">
-                                                                Support optional for this course.
-                                                            </p>
-                                                        ) : (
-                                                            <p className="rounded border border-amber-100 bg-amber-50 p-2 text-sm text-amber-800">
-                                                                Mentor or confirmed external partner required before finalization.
-                                                            </p>
-                                                        )}
+                                                        <ProjectSupportSummary
+                                                            support={
+                                                                support || {
+                                                                    requires_project_support: true,
+                                                                    has_support: false,
+                                                                }
+                                                            }
+                                                        />
 
                                                         {pendingMentorRequests.length > 0 && (
                                                             <div className="space-y-2">
@@ -1733,26 +1860,39 @@ export function CapstoneTeamsSection() {
                                                                             {request.mentor?.email ||
                                                                                 `Mentor #${request.mentor_fk}`}
                                                                         </span>
-                                                                        <Button
-                                                                            variant="outline"
-                                                                            size="sm"
-                                                                            className="h-7 text-xs"
-                                                                            onClick={() =>
+                                                                        <ConfirmActionDialog
+                                                                            title="Cancel mentor request?"
+                                                                            description={`This withdraws the pending request to ${
+                                                                                request.mentor?.email ||
+                                                                                `Mentor #${request.mentor_fk}`
+                                                                            }. They will no longer be able to accept it.`}
+                                                                            confirmLabel="Cancel request"
+                                                                            tone="destructive"
+                                                                            reasonLabel="Cancellation reason"
+                                                                            reasonDescription="This reason is saved with the request history."
+                                                                            reasonPlaceholder="Explain why this mentor request is being withdrawn."
+                                                                            reasonRequired
+                                                                            onConfirm={(reason) =>
                                                                                 handleStaffCancelMentorRequest(
                                                                                     numericCapstoneId,
-                                                                                    request
+                                                                                    request,
+                                                                                    reason
                                                                                 )
                                                                             }
-                                                                            disabled={
-                                                                                mentorActionKey ===
-                                                                                `cancel-${request.mentor_request_id}`
+                                                                            trigger={
+                                                                                <Button
+                                                                                    variant="outline"
+                                                                                    size="sm"
+                                                                                    className="h-7 min-w-[4.25rem] text-xs"
+                                                                                    disabled={
+                                                                                        mentorActionKey ===
+                                                                                        `cancel-${request.mentor_request_id}`
+                                                                                    }
+                                                                                >
+                                                                                    Cancel
+                                                                                </Button>
                                                                             }
-                                                                        >
-                                                                            {mentorActionKey ===
-                                                                            `cancel-${request.mentor_request_id}`
-                                                                                ? "Cancelling..."
-                                                                                : "Cancel"}
-                                                                        </Button>
+                                                                        />
                                                                     </div>
                                                                 ))}
                                                             </div>
@@ -1780,7 +1920,7 @@ export function CapstoneTeamsSection() {
                                                                         <div className="mt-2 flex gap-2">
                                                                             <Button
                                                                                 size="sm"
-                                                                                className="h-7 text-xs"
+                                                                                className="h-7 w-[5.75rem] text-xs"
                                                                                 onClick={() =>
                                                                                     handleStaffDecideMentorOffer(
                                                                                         numericCapstoneId,
@@ -1798,27 +1938,41 @@ export function CapstoneTeamsSection() {
                                                                                     ? "Saving..."
                                                                                     : "Accept"}
                                                                             </Button>
-                                                                            <Button
-                                                                                size="sm"
-                                                                                variant="outline"
-                                                                                className="h-7 text-xs"
-                                                                                onClick={() =>
+                                                                            <ConfirmActionDialog
+                                                                                title="Decline mentor offer?"
+                                                                                description={`This declines the offer from ${
+                                                                                    request.mentor?.email ||
+                                                                                    `Mentor #${request.mentor_fk}`
+                                                                                }. They will not be added as project support.`}
+                                                                                confirmLabel="Decline offer"
+                                                                                tone="destructive"
+                                                                                reasonLabel="Decline reason"
+                                                                                reasonDescription="This reason is saved with the mentor offer history."
+                                                                                reasonPlaceholder="Explain why this mentor offer is being declined."
+                                                                                reasonRequired
+                                                                                onConfirm={(reason) =>
                                                                                     handleStaffDecideMentorOffer(
                                                                                         numericCapstoneId,
                                                                                         request,
-                                                                                        "decline"
+                                                                                        "decline",
+                                                                                        reason,
+                                                                                        true
                                                                                     )
                                                                                 }
-                                                                                disabled={
-                                                                                    mentorActionKey ===
-                                                                                    `decline-${request.mentor_request_id}`
+                                                                                trigger={
+                                                                                    <Button
+                                                                                        size="sm"
+                                                                                        variant="outline"
+                                                                                        className="h-7 w-[5.75rem] text-xs"
+                                                                                        disabled={
+                                                                                            mentorActionKey ===
+                                                                                            `decline-${request.mentor_request_id}`
+                                                                                        }
+                                                                                    >
+                                                                                        Decline
+                                                                                    </Button>
                                                                                 }
-                                                                            >
-                                                                                {mentorActionKey ===
-                                                                                `decline-${request.mentor_request_id}`
-                                                                                    ? "Saving..."
-                                                                                    : "Decline"}
-                                                                            </Button>
+                                                                            />
                                                                         </div>
                                                                     </div>
                                                                 ))}
@@ -1904,145 +2058,120 @@ export function CapstoneTeamsSection() {
                                             </div>
                                         )}
                                         {canDeleteTeam && (
-                                            <div className="flex justify-end gap-2">
-                                                {canMarkComplete && (
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={() => {
-                                                            setTeamToComplete(team);
-                                                            setCompletionNotes("");
-                                                        }}
-                                                        disabled={
-                                                            completingCapstoneId !== null &&
+                                            <Disclosure
+                                                summary="Staff actions"
+                                                className="bg-white"
+                                                contentClassName="space-y-3"
+                                            >
+                                                <p className="text-xs leading-5 text-slate-600">
+                                                    Finalization closes recruiting and makes the
+                                                    team read-only. Academic completion is a
+                                                    separate milestone. Every exceptional change
+                                                    below opens a confirmation that records the
+                                                    required reason or evidence.
+                                                </p>
+                                                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                                                    {canMarkComplete && (
+                                                        <Button
+                                                            size="sm"
+                                                            onClick={() => {
+                                                                setTeamToComplete(team);
+                                                                setCompletionNotes("");
+                                                            }}
+                                                            disabled={
+                                                                completingCapstoneId !== null &&
+                                                                String(completingCapstoneId) ===
+                                                                    String(numericCapstoneId)
+                                                            }
+                                                        >
+                                                            {completingCapstoneId !== null &&
                                                             String(completingCapstoneId) ===
                                                                 String(numericCapstoneId)
-                                                        }
-                                                    >
-                                                        {completingCapstoneId !== null &&
-                                                        String(completingCapstoneId) ===
-                                                            String(numericCapstoneId)
-                                                            ? "Completing..."
-                                                            : "Mark Complete"}
-                                                    </Button>
-                                                )}
-                                                <Popover>
-                                                    <PopoverTrigger asChild>
+                                                                ? "Completing..."
+                                                                : "Mark Complete"}
+                                                        </Button>
+                                                    )}
+                                                    {canStaffFinalize && (
                                                         <Button
-                                                            type="button"
                                                             variant="outline"
                                                             size="sm"
-                                                            className="gap-2"
+                                                            onClick={() => {
+                                                                setTeamToFinalize(team);
+                                                                setFinalizationReason("");
+                                                            }}
+                                                            disabled={
+                                                                finalizingTeamId !== null &&
+                                                                String(finalizingTeamId) ===
+                                                                    String(team.team_id ?? team.id)
+                                                            }
                                                         >
-                                                            <Menu className="h-4 w-4" />
-                                                            More actions
+                                                            {finalizingTeamId !== null &&
+                                                            String(finalizingTeamId) ===
+                                                                String(team.team_id ?? team.id)
+                                                                ? "Finalizing..."
+                                                                : "Finalize Team"}
                                                         </Button>
-                                                    </PopoverTrigger>
-                                                    <PopoverContent align="end" className="w-56 p-2">
-                                                        <div className="space-y-1">
-                                                            {canStaffFinalize && (
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    className="w-full justify-start"
-                                                                    onClick={() => {
-                                                                        setTeamToFinalize(team);
-                                                                        setFinalizationReason("");
-                                                                    }}
-                                                                    disabled={
-                                                                        finalizingTeamId !== null &&
-                                                                        String(finalizingTeamId) ===
-                                                                            String(team.team_id ?? team.id)
-                                                                    }
-                                                                >
-                                                                    {finalizingTeamId !== null &&
-                                                                    String(finalizingTeamId) ===
-                                                                        String(team.team_id ?? team.id)
-                                                                        ? "Finalizing..."
-                                                                        : "Finalize Team"}
-                                                                </Button>
-                                                            )}
-                                                            {canReassignLeader && (
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    className="w-full justify-start"
-                                                                    onClick={() => {
-                                                                        const eligibleLeaderIds =
-                                                                            getEligibleLeaderIds(team);
-                                                                        setTeamToReassign(team);
-                                                                        setNewLeaderId(
-                                                                            eligibleLeaderIds[0]?.toString() ??
-                                                                                ""
-                                                                        );
-                                                                        setReassignReason("");
-                                                                    }}
-                                                                    disabled={
-                                                                        reassigningTeamId !== null &&
-                                                                        String(reassigningTeamId) ===
-                                                                            String(team.team_id ?? team.id)
-                                                                    }
-                                                                >
-                                                                    Reassign Leader
-                                                                </Button>
-                                                            )}
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                className="w-full justify-start text-red-700 hover:text-red-800"
-                                                                onClick={() => {
-                                                                    setTeamToDelete(team);
-                                                                    setDeleteReason("");
-                                                                }}
-                                                                disabled={
-                                                                    deletingTeamId !== null &&
-                                                                    String(deletingTeamId) ===
-                                                                        String(team.team_id ?? team.id)
-                                                                }
-                                                            >
-                                                                Disband Team
-                                                            </Button>
-                                                        </div>
-                                                    </PopoverContent>
-                                                </Popover>
-                                            </div>
+                                                    )}
+                                                    {canReassignLeader && (
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() => {
+                                                                const eligibleLeaderIds =
+                                                                    getEligibleLeaderIds(team);
+                                                                setTeamToReassign(team);
+                                                                setNewLeaderId(
+                                                                    eligibleLeaderIds[0]?.toString() ??
+                                                                        ""
+                                                                );
+                                                                setReassignReason("");
+                                                            }}
+                                                            disabled={
+                                                                reassigningTeamId !== null &&
+                                                                String(reassigningTeamId) ===
+                                                                    String(team.team_id ?? team.id)
+                                                            }
+                                                        >
+                                                            Reassign Leader
+                                                        </Button>
+                                                    )}
+                                                    <Button
+                                                        variant="destructive"
+                                                        size="sm"
+                                                        onClick={() => {
+                                                            setTeamToDelete(team);
+                                                            setDeleteReason("");
+                                                        }}
+                                                        disabled={
+                                                            deletingTeamId !== null &&
+                                                            String(deletingTeamId) ===
+                                                                String(team.team_id ?? team.id)
+                                                        }
+                                                    >
+                                                        Disband Team
+                                                    </Button>
+                                                </div>
+                                            </Disclosure>
                                         )}
-                                    </div>
+                                    </Disclosure>
                                 </Card>
                             );
                         })}
                     </div>
-                    {totalPages > 1 && (
-                        <div className="flex justify-center items-center gap-4 mt-4">
-                            <button
-                                onClick={() =>
-                                    setPage((current) =>
-                                        Math.max(1, current - 1)
-                                    )
-                                }
-                                disabled={page === 1 || loading}
-                                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                                type="button"
-                            >
-                                Previous
-                            </button>
-                            <span className="text-sm text-slate-600">
-                                Page {page} of {totalPages}
-                            </span>
-                            <button
-                                onClick={() =>
-                                    setPage((current) =>
-                                        Math.min(totalPages, current + 1)
-                                    )
-                                }
-                                disabled={page >= totalPages || loading}
-                                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                                type="button"
-                            >
-                                Next
-                            </button>
-                        </div>
-                    )}
+                    <PaginationBar
+                        page={page}
+                        totalPages={totalPages}
+                        loading={loading}
+                        className="rounded-lg border border-slate-200 bg-white"
+                        onPrevious={() =>
+                            setPage((current) => Math.max(1, current - 1))
+                        }
+                        onNext={() =>
+                            setPage((current) =>
+                                Math.min(totalPages, current + 1)
+                            )
+                        }
+                    />
                 </>
             )}
             <Dialog
@@ -2062,8 +2191,8 @@ export function CapstoneTeamsSection() {
                         </DialogDescription>
                     </DialogHeader>
                     {teamToFinalize && (
-                        <FinalizationReadinessChecklist
-                            items={buildFinalizationReadinessItems(teamToFinalize)}
+                        <FinalizationReadiness
+                            readiness={buildReadinessSummary(teamToFinalize)}
                         />
                     )}
                     <div className="space-y-1">

@@ -1,10 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Card, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Check, MessageSquarePlus, Trash2, X } from "lucide-react";
+import { CapstoneCard } from "@/components/capstones/CapstoneCard";
+import { Archive, ArrowRight, Check, MessageSquarePlus, X } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { TaxonomyChipList } from "@/components/ui/taxonomy-chip";
 import { Textarea } from "@/components/ui/textarea";
+import {
+    Disclosure,
+    EmptyState,
+    Notice,
+    PaginationBar,
+    SectionHeader,
+    StatusBadge,
+} from "@/components/ui/workspace";
 import {
     Dialog,
     DialogContent,
@@ -30,6 +40,10 @@ import {
     fetchCapstoneApprovalHistory,
 } from "@/services/capstones.service";
 import { fetchCourses, type Course } from "@/services/courses.service";
+import {
+    fetchCapstoneTeamContext,
+    type CapstoneTeamContext,
+} from "@/services/teams.service";
 
 interface Project {
     capstone_id: string;
@@ -77,6 +91,38 @@ interface Project {
     year?: number;
 }
 
+function formatSubmittedAge(value?: string) {
+    if (!value) return "Submission time unavailable";
+
+    const submittedAt = new Date(value);
+    if (Number.isNaN(submittedAt.getTime())) return "Submission time unavailable";
+
+    const elapsedMinutes = Math.max(
+        0,
+        Math.floor((Date.now() - submittedAt.getTime()) / 60_000)
+    );
+    if (elapsedMinutes < 1) return "Submitted just now";
+    if (elapsedMinutes < 60) {
+        return `Submitted ${elapsedMinutes}m ago`;
+    }
+
+    const elapsedHours = Math.floor(elapsedMinutes / 60);
+    if (elapsedHours < 24) {
+        return `Submitted ${elapsedHours}h ago`;
+    }
+
+    const elapsedDays = Math.floor(elapsedHours / 24);
+    if (elapsedDays < 7) {
+        return `Submitted ${elapsedDays}d ago`;
+    }
+
+    return `Submitted ${submittedAt.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: submittedAt.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+    })}`;
+}
+
 export function PendingCapstonesSection() {
     const { user } = userContext();
     const normalizedRole = user?.role?.toLowerCase();
@@ -112,6 +158,7 @@ export function PendingCapstonesSection() {
     const [submittingReject, setSubmittingReject] = useState(false);
     const [rejectError, setRejectError] = useState<string | null>(null);
     const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+    const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
     const [deleteReason, setDeleteReason] = useState("");
     const [deleteError, setDeleteError] = useState<string | null>(null);
     const [deletingCapstone, setDeletingCapstone] = useState(false);
@@ -129,6 +176,9 @@ export function PendingCapstonesSection() {
         }>
     >([]);
     const [loadingResubmissionNote, setLoadingResubmissionNote] = useState(false);
+    const [teamContext, setTeamContext] = useState<CapstoneTeamContext | null>(null);
+    const [teamContextLoading, setTeamContextLoading] = useState(false);
+    const [teamContextError, setTeamContextError] = useState<string | null>(null);
     const [courseMap, setCourseMap] = useState<Record<number, Course>>({});
     const [departmentFilter, setDepartmentFilter] = useState("All");
 
@@ -269,21 +319,29 @@ export function PendingCapstonesSection() {
                             </p>
                         )}
                         {(startDate || disciplines.length || skills.length) && (
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex flex-wrap items-start gap-3">
                                 {startDate && (
                                     <span className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700">
                                         Start: {startDate}
                                     </span>
                                 )}
                                 {disciplines.length > 0 && (
-                                    <span className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700">
-                                        Disciplines: {disciplines.join(", ")}
-                                    </span>
+                                    <div className="min-w-0 space-y-1">
+                                        <p className="font-medium text-slate-600">Disciplines</p>
+                                        <TaxonomyChipList
+                                            namespace="discipline"
+                                            values={disciplines}
+                                        />
+                                    </div>
                                 )}
                                 {skills.length > 0 && (
-                                    <span className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700">
-                                        Skills: {skills.join(", ")}
-                                    </span>
+                                    <div className="min-w-0 space-y-1">
+                                        <p className="font-medium text-slate-600">Skills</p>
+                                        <TaxonomyChipList
+                                            namespace="skill"
+                                            values={skills}
+                                        />
+                                    </div>
                                 )}
                             </div>
                         )}
@@ -438,7 +496,7 @@ export function PendingCapstonesSection() {
     };
 
     const handleDeleteSelectedCapstone = async () => {
-        if (!selectedProject?.capstone_id) return;
+        if (!deleteTarget?.capstone_id) return;
         const trimmedReason = deleteReason.trim();
         if (!trimmedReason) {
             setDeleteError("An audit reason is required when archiving a capstone.");
@@ -449,21 +507,22 @@ export function PendingCapstonesSection() {
 
         try {
             await deleteCapstone(
-                selectedProject.capstone_id,
+                deleteTarget.capstone_id,
                 trimmedReason
             );
             setPendingProjects((previous) =>
                 previous.filter(
                     (project) =>
-                        project.capstone_id !== selectedProject.capstone_id
+                        project.capstone_id !== deleteTarget.capstone_id
                 )
             );
             setSelectedProject(null);
+            setDeleteTarget(null);
             setIsDeleteOpen(false);
             setDeleteReason("");
         } catch (err) {
-            console.error("Failed to delete capstone:", err);
-            setDeleteError(getErrorMessage(err, "Failed to delete capstone."));
+            console.error("Failed to archive capstone:", err);
+            setDeleteError(getErrorMessage(err, "Failed to archive capstone."));
         } finally {
             setDeletingCapstone(false);
         }
@@ -551,10 +610,11 @@ export function PendingCapstonesSection() {
     }, [canReviewCapstones]);
 
     useEffect(() => {
-        if (homeDepartmentName && departmentFilter === "All") {
-            setDepartmentFilter(homeDepartmentName);
-        }
-    }, [departmentFilter, homeDepartmentName]);
+        if (!homeDepartmentName) return;
+        setDepartmentFilter((currentDepartment) =>
+            currentDepartment === "All" ? homeDepartmentName : currentDepartment
+        );
+    }, [homeDepartmentName]);
 
     useEffect(() => {
         async function loadResubmissionNote() {
@@ -634,155 +694,169 @@ export function PendingCapstonesSection() {
         loadResubmissionNote();
     }, [selectedProject]);
 
+    useEffect(() => {
+        let active = true;
+
+        async function loadTeamContext() {
+            const capstoneId = selectedProject?.capstone_id;
+            if (!capstoneId) {
+                setTeamContext(null);
+                setTeamContextError(null);
+                setTeamContextLoading(false);
+                return;
+            }
+
+            setTeamContext(null);
+            setTeamContextError(null);
+            setTeamContextLoading(true);
+            try {
+                const context = await fetchCapstoneTeamContext(capstoneId);
+                if (active) setTeamContext(context);
+            } catch (err) {
+                if (active) {
+                    setTeamContextError(
+                        getErrorMessage(err, "Could not load official team context.")
+                    );
+                }
+            } finally {
+                if (active) setTeamContextLoading(false);
+            }
+        }
+
+        loadTeamContext();
+        return () => {
+            active = false;
+        };
+    }, [selectedProject?.capstone_id]);
+
     if (!canReviewCapstones) {
         return null;
     }
 
     return (
-        <section className="space-y-3">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <h2 className="text-xl font-semibold text-slate-900">
-                    Pending Capstone Approvals
-                </h2>
-                <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
-                    <SelectTrigger className="w-full sm:w-[300px]">
-                        <SelectValue placeholder="Filter by department" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="All">All Departments</SelectItem>
-                        {departmentOptions.map((department) => (
-                            <SelectItem key={department} value={department}>
-                                {department}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+        <section className="space-y-5">
+            <SectionHeader
+                title="Project reviews"
+                description="Open a submission to inspect its proposal, official roster, and review history before deciding."
+            />
+
+            <div className="wm-panel flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 text-sm text-slate-600">
+                    Showing <span className="font-medium tabular-nums text-slate-900">{filteredPendingProjects.length}</span>{" "}
+                    of <span className="font-medium tabular-nums text-slate-900">{pendingProjects.length}</span>{" "}
+                    submissions on this page
+                </div>
+                <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                    <Label htmlFor="review-department-filter" className="sr-only">
+                        Filter reviews by department
+                    </Label>
+                    <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+                        <SelectTrigger id="review-department-filter" className="w-full sm:w-[280px]">
+                            <SelectValue placeholder="Filter by department" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="All">All departments</SelectItem>
+                            {departmentOptions.map((department) => (
+                                <SelectItem key={department} value={department}>
+                                    {department}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-9 self-start sm:self-auto"
+                        onClick={() => setDepartmentFilter("All")}
+                        disabled={departmentFilter === "All"}
+                    >
+                        Clear
+                    </Button>
+                </div>
             </div>
+
+            {error && (
+                <Notice tone="danger" title="Reviews could not be refreshed">
+                    {error}
+                </Notice>
+            )}
+
             {loading ? (
-                <p className="text-sm text-slate-600">
-                    Loading pending projects...
-                </p>
-            ) : error ? (
-                <p className="text-sm text-red-600">{error}</p>
+                <div className="wm-panel px-4 py-5 text-sm text-slate-600" role="status">
+                    Loading project reviews…
+                </div>
             ) : pendingProjects.length === 0 ? (
-                <p className="text-sm text-slate-600">
-                    No pending capstones awaiting approval.
-                </p>
+                <EmptyState
+                    title="No submissions are waiting for review"
+                    description="New or resubmitted projects for this course will appear here."
+                />
             ) : filteredPendingProjects.length === 0 ? (
-                <p className="text-sm text-slate-600">
-                    No pending capstones match this department filter.
-                </p>
+                <EmptyState
+                    title="No reviews match this department"
+                    description="Clear the department filter to return to the full course queue."
+                    action={
+                        <Button type="button" variant="outline" size="sm" onClick={() => setDepartmentFilter("All")}>
+                            Clear filter
+                        </Button>
+                    }
+                />
             ) : (
                 <div className="grid gap-3">
                     {filteredPendingProjects.map((project) => (
-                        <Card
+                        <CapstoneCard
                             key={project.capstone_id}
-                            className="w-full gap-0 rounded-lg border border-slate-200 bg-white p-0 shadow-sm transition hover:shadow-md"
+                            project={project}
+                            courseLabel={
+                                project.course_fk && courseMap[project.course_fk]
+                                    ? `${courseMap[project.course_fk].code} - ${courseMap[project.course_fk].name}`
+                                    : "Course not specified"
+                            }
                             onClick={() => setSelectedProject(project)}
-                        >
-                            <div className="flex h-full flex-col gap-3 p-4">
-                                        <CardTitle className="line-clamp-2 break-words text-lg leading-snug">
-                                            {project.title ??
-                                                "Untitled Project"}
-                                        </CardTitle>
-                                        <p className="line-clamp-4 break-words text-sm leading-6 text-slate-600">
-                                            {project.description ??
-                                                "No description provided."}
+                            canExpressInterest={false}
+                            actions={
+                                <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                    <div className="min-w-0 text-xs leading-5 text-slate-500">
+                                        <p className="break-all font-medium text-slate-700">
+                                            Submitted by {project.email || "student team"}
                                         </p>
-                                        <p className="break-words text-xs text-slate-500">
-                                            {project.course_fk &&
-                                            courseMap[project.course_fk]
-                                                ? `${courseMap[project.course_fk].code} - ${courseMap[project.course_fk].name}`
-                                                : "Course: Unspecified"}
+                                        <p>
+                                            {project.proposed_team_members
+                                                ? "Team proposal"
+                                                : "Individual proposal"}
+                                            {" · "}
+                                            {formatSubmittedAge(project.created_at)}
                                         </p>
-                                        <div className="flex items-center justify-end text-xs text-slate-500">
-                                            <div className="flex items-center gap-2">
-                                                <Button
-                                                    size="sm"
-                                                    className="bg-emerald-400 hover:bg-emerald-500 text-white"
-                                                    disabled={isActionPending(
-                                                        project.capstone_id
-                                                    )}
-                                                    onClick={(event) => {
-                                                        event.stopPropagation();
-                                                        openApproveModal(
-                                                            project.capstone_id
-                                                        );
-                                                    }}
-                                                    aria-label="Approve capstone"
-                                                    title="Approve"
-                                                >
-                                                    <Check className="w-4 h-4" />
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    className="bg-rose-400 hover:bg-rose-500 text-white"
-                                                    disabled={isActionPending(
-                                                        project.capstone_id
-                                                    )}
-                                                    onClick={(event) => {
-                                                        event.stopPropagation();
-                                                        openRejectModal(
-                                                            project.capstone_id
-                                                        );
-                                                    }}
-                                                    aria-label="Reject capstone"
-                                                    title="Reject"
-                                                >
-                                                    <X className="w-4 h-4" />
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    className="bg-slate-700 hover:bg-slate-800 text-white"
-                                                    disabled={isActionPending(
-                                                        project.capstone_id
-                                                    )}
-                                                    onClick={(event) => {
-                                                        event.stopPropagation();
-                                                        openRequestChangesModal(
-                                                            project.capstone_id
-                                                        );
-                                                    }}
-                                                    aria-label="Request changes"
-                                                    title="Request changes"
-                                                >
-                                                    <MessageSquarePlus className="w-4 h-4" />
-                                                </Button>
-                                            </div>
-                                        </div>
-                            </div>
-                        </Card>
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        className="w-full shrink-0 sm:w-auto"
+                                        disabled={isActionPending(project.capstone_id)}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            setSelectedProject(project);
+                                        }}
+                                    >
+                                        Review submission
+                                        <ArrowRight className="size-4" aria-hidden="true" />
+                                    </Button>
+                                </div>
+                            }
+                        />
                     ))}
                 </div>
             )}
+
             {pendingProjects.length > 0 && (
-                <div className="flex justify-center items-center gap-4">
-                    <button
-                        onClick={() =>
-                            setPage((current) => Math.max(1, current - 1))
-                        }
-                        disabled={page === 1 || loading}
-                        className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                        type="button"
-                    >
-                        Previous
-                    </button>
-                    <span className="text-sm text-slate-600">
-                        Page {page} of {totalPages}
-                    </span>
-                    <button
-                        onClick={() =>
-                            setPage((current) =>
-                                Math.min(totalPages, current + 1)
-                            )
-                        }
-                        disabled={page >= totalPages || loading}
-                        className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                        type="button"
-                    >
-                        Next
-                    </button>
-                </div>
+                <PaginationBar
+                    page={page}
+                    totalPages={totalPages}
+                    loading={loading}
+                    onPrevious={() => setPage((current) => Math.max(1, current - 1))}
+                    onNext={() => setPage((current) => Math.min(totalPages, current + 1))}
+                    className="rounded-xl border border-slate-200 bg-white"
+                />
             )}
             <Dialog
                 open={!!selectedProject}
@@ -790,213 +864,263 @@ export function PendingCapstonesSection() {
                     if (!open) setSelectedProject(null);
                 }}
             >
-                <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-                    <DialogHeader>
-                        <DialogTitle>
-                            {selectedProject?.title ?? "Capstone Details"}
-                        </DialogTitle>
-                        <DialogDescription>
-                            Review timeline and student update context.
-                        </DialogDescription>
-                    </DialogHeader>
+                <DialogContent className="max-h-[90vh] overflow-y-auto bg-slate-50 p-2 sm:max-w-5xl sm:p-4">
                     {selectedProject && (
-                        <div className="space-y-5 text-sm">
-                            <div className="flex justify-end">
-                                <Button
-                                    variant="destructive"
-                                    size="sm"
-                                    onClick={() => setIsDeleteOpen(true)}
-                                >
-                                    <Trash2 className="w-4 h-4 mr-2" />
-                                    Delete Capstone
-                                </Button>
-                            </div>
-                            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">
-                                    Student Resubmission Note
-                                </p>
-                                {loadingResubmissionNote ? (
-                                    <p className="text-slate-600">Loading...</p>
-                                ) : (
-                                    <p className="text-slate-800 whitespace-pre-wrap">
-                                        {studentResubmissionNote || "No resubmission note provided yet."}
-                                    </p>
-                                )}
-                            </div>
-                            {changedFields.length > 0 && (
-                                <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
-                                        Changed Since Original Submission
-                                    </p>
-                                    <div className="flex flex-wrap gap-2">
-                                        {changedFields.map((field) => (
-                                            <span
-                                                key={field}
-                                                className="text-xs px-2 py-1 rounded bg-white border border-blue-200 text-blue-800"
-                                            >
-                                                {field}
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                            <div className="rounded-lg border border-slate-200 bg-white p-3">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
-                                    Project Submission Details
-                                </p>
-                                <div className="space-y-2 text-slate-700">
-                                    {selectedProject.project_start_date && (
-                                        <p>
-                                            <span className="font-medium">Starting term:</span>{" "}
-                                            {selectedProject.project_start_date}
-                                        </p>
-                                    )}
-                                    {selectedProject.how_heard_about_capstone && (
-                                        <p>
-                                            <span className="font-medium">Heard about capstone:</span>{" "}
-                                            {selectedProject.how_heard_about_capstone}
-                                        </p>
-                                    )}
-                                    {(selectedProject.deliverable_types || []).length > 0 && (
-                                        <p>
-                                            <span className="font-medium">Deliverable types:</span>{" "}
-                                            {(selectedProject.deliverable_types || []).join(", ")}
-                                        </p>
-                                    )}
-                                    {selectedProject.success_criteria && (
-                                        <p className="whitespace-pre-wrap">
-                                            <span className="font-medium">Success criteria:</span>{" "}
-                                            {selectedProject.success_criteria}
-                                        </p>
-                                    )}
-                                    {selectedProject.validation_plan && (
-                                        <p className="whitespace-pre-wrap">
-                                            <span className="font-medium">Validation plan:</span>{" "}
-                                            {selectedProject.validation_plan}
-                                        </p>
-                                    )}
-                                    {selectedProject.stakeholders && (
-                                        <p className="whitespace-pre-wrap">
-                                            <span className="font-medium">Stakeholders/users:</span>{" "}
-                                            {selectedProject.stakeholders}
-                                        </p>
-                                    )}
-                                    {selectedProject.risks_constraints && (
-                                        <p className="whitespace-pre-wrap">
-                                            <span className="font-medium">Risks, constraints, ethics, safety, or privacy:</span>{" "}
-                                            {selectedProject.risks_constraints}
-                                        </p>
-                                    )}
-                                    <p>
-                                        <span className="font-medium">Policy acknowledgements:</span>{" "}
-                                        {[
-                                            selectedProject.public_evaluation_acknowledged
-                                                ? "Public evaluation"
-                                                : null,
-                                            selectedProject.ip_acknowledged ? "IP policy" : null,
-                                            selectedProject.confidentiality_acknowledged
-                                                ? "Confidentiality/NDA"
-                                                : null,
-                                        ].filter(Boolean).join(", ") || "Not confirmed"}
-                                    </p>
-                                    {selectedProject.proposed_team_members && (
-                                        <p className="whitespace-pre-wrap">
-                                            <span className="font-medium">Proposed team members:</span>{" "}
-                                            {selectedProject.proposed_team_members}
-                                        </p>
-                                    )}
-                                </div>
-                            </div>
-                            {(selectedProject.external_partner_organization ||
-                                selectedProject.external_partner_name ||
-                                selectedProject.external_partner_email) && (
-                                <div className="rounded-lg border border-slate-200 bg-white p-3">
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
-                                        External Partner
-                                    </p>
-                                    <div className="space-y-1 text-slate-700">
-                                        {selectedProject.external_partner_organization && (
-                                            <p>
-                                                <span className="font-medium">Organization:</span>{" "}
-                                                {selectedProject.external_partner_organization}
+                        <>
+                            <DialogTitle className="sr-only">
+                                Review {selectedProject.title || "capstone submission"}
+                            </DialogTitle>
+                            <DialogDescription className="sr-only">
+                                Review the proposal, official team, readiness, support, and approval history before recording a decision.
+                            </DialogDescription>
+                            <CapstoneCard
+                                mode="expanded"
+                                project={selectedProject}
+                                courseLabel={
+                                    selectedProject.course_fk && courseMap[selectedProject.course_fk]
+                                        ? `${courseMap[selectedProject.course_fk].code} - ${courseMap[selectedProject.course_fk].name}`
+                                        : "Course not specified"
+                                }
+                                teamContext={teamContext}
+                                contextLoading={teamContextLoading}
+                                contextError={teamContextError}
+                                showTeamContext
+                                details={
+                                    <div className="space-y-3 text-sm">
+                                        {loadingResubmissionNote ? (
+                                            <p className="text-slate-600" role="status">
+                                                Loading revision context…
                                             </p>
-                                        )}
-                                        {selectedProject.external_partner_name && (
-                                            <p>
-                                                <span className="font-medium">Contact:</span>{" "}
-                                                {selectedProject.external_partner_name}
-                                            </p>
-                                        )}
-                                        {selectedProject.external_partner_email && (
-                                            <p>
-                                                <span className="font-medium">Email:</span>{" "}
-                                                {selectedProject.external_partner_email}
-                                            </p>
-                                        )}
-                                        {selectedProject.external_partner_website && (
-                                            <p>
-                                                <span className="font-medium">Link:</span>{" "}
-                                                {selectedProject.external_partner_website}
-                                            </p>
-                                        )}
-                                        {selectedProject.external_partner_notes && (
-                                            <p className="whitespace-pre-wrap">
-                                                <span className="font-medium">Notes:</span>{" "}
-                                                {selectedProject.external_partner_notes}
-                                            </p>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                            {timeline.length > 0 && (
-                                <div className="rounded-lg border border-slate-200 bg-white p-4">
-                                    <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                        Review Timeline
-                                    </p>
-                                    <div className="space-y-0">
-                                        {timeline.map((item, index) => {
-                                            const isLast = index === timeline.length - 1;
-                                            return (
-                                                <div
-                                                    key={`${item.action}-${index}`}
-                                                    className="grid grid-cols-[24px_minmax(0,1fr)] gap-3"
-                                                >
-                                                    <div className="flex flex-col items-center">
-                                                        <span className="mt-1 h-3 w-3 rounded-full border-2 border-white bg-slate-700 ring-2 ring-slate-200" />
-                                                        {!isLast && (
-                                                            <span className="mt-1 h-full min-h-10 w-px bg-slate-200" />
-                                                        )}
-                                                    </div>
-                                                    <div className="pb-4">
-                                                        <div className="flex flex-wrap items-center gap-2">
-                                                            <span className="font-semibold text-slate-900">
-                                                                {formatTimelineAction(item.action)}
-                                                            </span>
-                                                            {item.created_at && (
-                                                                <span className="text-xs text-slate-500">
-                                                                    {new Date(item.created_at).toLocaleString()}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                        <p className="mt-0.5 text-xs text-slate-500">
-                                                            {item.instructor_display ||
-                                                                item.instructor_email ||
-                                                                "WatMatch"}
-                                                        </p>
-                                                        <div className="mt-2 text-xs text-slate-700">
-                                                            {renderTimelineComment(
-                                                                item.action,
-                                                                item.comments
-                                                            )}
-                                                        </div>
-                                                    </div>
+                                        ) : studentResubmissionNote ? (
+                                            <Notice tone="info" title="Student resubmission note">
+                                                <p className="whitespace-pre-wrap">{studentResubmissionNote}</p>
+                                            </Notice>
+                                        ) : null}
+
+                                        {changedFields.length > 0 && (
+                                            <div className="rounded-lg border border-blue-200 bg-blue-50/70 p-3">
+                                                <p className="text-xs font-semibold text-blue-900">
+                                                    Changed since the original submission
+                                                </p>
+                                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                                    {changedFields.map((field) => (
+                                                        <StatusBadge key={field} tone="info">
+                                                            {field}
+                                                        </StatusBadge>
+                                                    ))}
                                                 </div>
-                                            );
-                                        })}
+                                            </div>
+                                        )}
+
+                                        <Disclosure
+                                            summary="Submission details"
+                                            summaryClassName="[&::after]:hidden"
+                                            contentClassName="space-y-3"
+                                        >
+                                            {selectedProject.project_start_date && (
+                                                <p>
+                                                    <span className="font-medium text-slate-900">Starting term:</span>{" "}
+                                                    {selectedProject.project_start_date}
+                                                </p>
+                                            )}
+                                            {selectedProject.how_heard_about_capstone && (
+                                                <p>
+                                                    <span className="font-medium text-slate-900">Heard about capstone:</span>{" "}
+                                                    {selectedProject.how_heard_about_capstone}
+                                                </p>
+                                            )}
+                                            {(selectedProject.deliverable_types || []).length > 0 && (
+                                                <div>
+                                                    <p className="font-medium text-slate-900">Deliverable types</p>
+                                                    <TaxonomyChipList
+                                                        namespace="deliverable"
+                                                        values={selectedProject.deliverable_types}
+                                                        className="mt-1.5"
+                                                    />
+                                                </div>
+                                            )}
+                                            {selectedProject.success_criteria && (
+                                                <p className="whitespace-pre-wrap">
+                                                    <span className="font-medium text-slate-900">Success criteria:</span>{" "}
+                                                    {selectedProject.success_criteria}
+                                                </p>
+                                            )}
+                                            {selectedProject.validation_plan && (
+                                                <p className="whitespace-pre-wrap">
+                                                    <span className="font-medium text-slate-900">Validation plan:</span>{" "}
+                                                    {selectedProject.validation_plan}
+                                                </p>
+                                            )}
+                                            {selectedProject.stakeholders && (
+                                                <p className="whitespace-pre-wrap">
+                                                    <span className="font-medium text-slate-900">Stakeholders and users:</span>{" "}
+                                                    {selectedProject.stakeholders}
+                                                </p>
+                                            )}
+                                            {selectedProject.risks_constraints && (
+                                                <p className="whitespace-pre-wrap">
+                                                    <span className="font-medium text-slate-900">Risks and constraints:</span>{" "}
+                                                    {selectedProject.risks_constraints}
+                                                </p>
+                                            )}
+                                            <p>
+                                                <span className="font-medium text-slate-900">Policy acknowledgements:</span>{" "}
+                                                {[
+                                                    selectedProject.public_evaluation_acknowledged ? "Public evaluation" : null,
+                                                    selectedProject.ip_acknowledged ? "IP policy" : null,
+                                                    selectedProject.confidentiality_acknowledged ? "Confidentiality/NDA" : null,
+                                                ].filter(Boolean).join(", ") || "Not confirmed"}
+                                            </p>
+                                            {selectedProject.proposed_team_members && (
+                                                <p className="whitespace-pre-wrap">
+                                                    <span className="font-medium text-slate-900">Proposed team members:</span>{" "}
+                                                    {selectedProject.proposed_team_members}
+                                                </p>
+                                            )}
+                                        </Disclosure>
+
+                                        {(selectedProject.external_partner_organization ||
+                                            selectedProject.external_partner_name ||
+                                            selectedProject.external_partner_email) && (
+                                            <Disclosure
+                                                summary="External partner context"
+                                                summaryClassName="[&::after]:hidden"
+                                                contentClassName="space-y-2"
+                                            >
+                                                {selectedProject.external_partner_organization && (
+                                                    <p><span className="font-medium text-slate-900">Organization:</span> {selectedProject.external_partner_organization}</p>
+                                                )}
+                                                {selectedProject.external_partner_name && (
+                                                    <p><span className="font-medium text-slate-900">Contact:</span> {selectedProject.external_partner_name}</p>
+                                                )}
+                                                {selectedProject.external_partner_email && (
+                                                    <p className="break-all"><span className="font-medium text-slate-900">Email:</span> {selectedProject.external_partner_email}</p>
+                                                )}
+                                                {selectedProject.external_partner_website && (
+                                                    <p className="break-all"><span className="font-medium text-slate-900">Website:</span> {selectedProject.external_partner_website}</p>
+                                                )}
+                                                {selectedProject.external_partner_notes && (
+                                                    <p className="whitespace-pre-wrap"><span className="font-medium text-slate-900">Notes:</span> {selectedProject.external_partner_notes}</p>
+                                                )}
+                                            </Disclosure>
+                                        )}
+
+                                        {timeline.length > 0 && (
+                                            <Disclosure
+                                                summary={`Review history (${timeline.length})`}
+                                                summaryClassName="[&::after]:hidden"
+                                                contentClassName="space-y-0"
+                                            >
+                                                {timeline.map((item, index) => {
+                                                    const isLast = index === timeline.length - 1;
+                                                    return (
+                                                        <div key={`${item.action}-${index}`} className="grid grid-cols-[20px_minmax(0,1fr)] gap-3">
+                                                            <div className="flex flex-col items-center">
+                                                                <span className="mt-1 size-2.5 rounded-full bg-slate-500 ring-2 ring-slate-100" />
+                                                                {!isLast && <span className="mt-1 h-full min-h-10 w-px bg-slate-200" />}
+                                                            </div>
+                                                            <div className="pb-4">
+                                                                <div className="flex flex-wrap items-center gap-2">
+                                                                    <span className="font-medium text-slate-900">{formatTimelineAction(item.action)}</span>
+                                                                    {item.created_at && (
+                                                                        <span className="text-xs text-slate-500">{new Date(item.created_at).toLocaleString()}</span>
+                                                                    )}
+                                                                </div>
+                                                                <p className="mt-0.5 text-xs text-slate-500">
+                                                                    {item.instructor_display || item.instructor_email || "WatMatch"}
+                                                                </p>
+                                                                <div className="mt-2 text-xs text-slate-700">
+                                                                    {renderTimelineComment(item.action, item.comments)}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </Disclosure>
+                                        )}
                                     </div>
-                                </div>
-                            )}
-                        </div>
+                                }
+                                actions={
+                                    <div className="space-y-4">
+                                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-semibold text-slate-900">Record a review decision</p>
+                                                <p className="mt-0.5 text-xs leading-5 text-slate-600">
+                                                    Approval opens the project to student interest. Changes and rejection require written feedback.
+                                                </p>
+                                            </div>
+                                            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => {
+                                                        const capstoneId = selectedProject.capstone_id;
+                                                        setSelectedProject(null);
+                                                        openRequestChangesModal(capstoneId);
+                                                    }}
+                                                >
+                                                    <MessageSquarePlus className="size-4" aria-hidden="true" />
+                                                    Request changes
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="text-red-700 hover:bg-red-50 hover:text-red-800"
+                                                    onClick={() => {
+                                                        const capstoneId = selectedProject.capstone_id;
+                                                        setSelectedProject(null);
+                                                        openRejectModal(capstoneId);
+                                                    }}
+                                                >
+                                                    <X className="size-4" aria-hidden="true" />
+                                                    Reject
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    onClick={() => {
+                                                        const capstoneId = selectedProject.capstone_id;
+                                                        setSelectedProject(null);
+                                                        openApproveModal(capstoneId);
+                                                    }}
+                                                >
+                                                    <Check className="size-4" aria-hidden="true" />
+                                                    Approve
+                                                </Button>
+                                            </div>
+                                        </div>
+
+                                        <Disclosure
+                                            summary="Administrative actions"
+                                            summaryClassName="[&::after]:hidden"
+                                            contentClassName="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                                        >
+                                            <div>
+                                                <p className="font-medium text-slate-900">Archive this submission</p>
+                                                <p className="mt-0.5 text-xs text-slate-600">
+                                                    This closes the submission and may disband its linked team. An audit reason is required.
+                                                </p>
+                                            </div>
+                                            <Button
+                                                type="button"
+                                                variant="destructive"
+                                                size="sm"
+                                                onClick={() => {
+                                                    setDeleteTarget(selectedProject);
+                                                    setSelectedProject(null);
+                                                    setIsDeleteOpen(true);
+                                                }}
+                                            >
+                                                <Archive className="size-4" aria-hidden="true" />
+                                                Archive submission
+                                            </Button>
+                                        </Disclosure>
+                                    </div>
+                                }
+                            />
+                        </>
                     )}
                 </DialogContent>
             </Dialog>
@@ -1005,6 +1129,7 @@ export function PendingCapstonesSection() {
                 onOpenChange={(open) => {
                     if (!open) {
                         setIsDeleteOpen(false);
+                        setDeleteTarget(null);
                         setDeleteReason("");
                         setDeleteError(null);
                     }
@@ -1012,28 +1137,37 @@ export function PendingCapstonesSection() {
             >
                 <DialogContent className="space-y-4">
                     <DialogHeader>
-                        <DialogTitle>Delete Capstone</DialogTitle>
+                        <DialogTitle>Archive submission</DialogTitle>
                         <DialogDescription>
-                            This closes the submission and, when needed, disbands
-                            the linked team.
+                            This closes {deleteTarget?.title || "the submission"} and, when
+                            needed, disbands the linked team. This action is audited.
                         </DialogDescription>
                     </DialogHeader>
-                    <Textarea
-                        value={deleteReason}
-                        onChange={(event) => {
-                            setDeleteReason(event.target.value);
-                            setDeleteError(null);
-                        }}
-                        placeholder="Required audit reason"
-                        rows={3}
-                    />
+                    <div className="space-y-2">
+                        <Label htmlFor="archive-capstone-reason">Audit reason</Label>
+                        <Textarea
+                            id="archive-capstone-reason"
+                            value={deleteReason}
+                            onChange={(event) => {
+                                setDeleteReason(event.target.value);
+                                setDeleteError(null);
+                            }}
+                            placeholder="Why is this submission being archived?"
+                            rows={3}
+                        />
+                    </div>
                     {deleteError && (
-                        <p className="text-sm text-red-600">{deleteError}</p>
+                        <p className="text-sm text-red-600" role="alert">{deleteError}</p>
                     )}
                     <DialogFooter>
                         <Button
                             variant="outline"
-                            onClick={() => setIsDeleteOpen(false)}
+                            onClick={() => {
+                                setIsDeleteOpen(false);
+                                setDeleteTarget(null);
+                                setDeleteReason("");
+                                setDeleteError(null);
+                            }}
                             disabled={deletingCapstone}
                         >
                             Cancel
@@ -1043,7 +1177,7 @@ export function PendingCapstonesSection() {
                             onClick={handleDeleteSelectedCapstone}
                             disabled={deletingCapstone || !deleteReason.trim()}
                         >
-                            {deletingCapstone ? "Deleting..." : "Delete"}
+                            {deletingCapstone ? "Archiving…" : "Archive submission"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -1063,14 +1197,18 @@ export function PendingCapstonesSection() {
                             is needed, the project will open to student interest.
                         </DialogDescription>
                     </DialogHeader>
-                    <Textarea
-                        value={approveText}
-                        onChange={(event) => setApproveText(event.target.value)}
-                        placeholder="Optional note for the student..."
-                        rows={5}
-                    />
+                    <div className="space-y-2">
+                        <Label htmlFor="approve-capstone-note">Feedback (optional)</Label>
+                        <Textarea
+                            id="approve-capstone-note"
+                            value={approveText}
+                            onChange={(event) => setApproveText(event.target.value)}
+                            placeholder="Add a short note for the student team"
+                            rows={5}
+                        />
+                    </div>
                     {approveError && (
-                        <p className="text-sm text-red-600">{approveError}</p>
+                        <p className="text-sm text-red-600" role="alert">{approveError}</p>
                     )}
                     <DialogFooter>
                         <Button
@@ -1106,14 +1244,18 @@ export function PendingCapstonesSection() {
                             this submission was rejected.
                         </DialogDescription>
                     </DialogHeader>
-                    <Textarea
-                        value={rejectText}
-                        onChange={(event) => setRejectText(event.target.value)}
-                        placeholder="Explain why this capstone is being rejected..."
-                        rows={6}
-                    />
+                    <div className="space-y-2">
+                        <Label htmlFor="reject-capstone-reason">Reason for rejection</Label>
+                        <Textarea
+                            id="reject-capstone-reason"
+                            value={rejectText}
+                            onChange={(event) => setRejectText(event.target.value)}
+                            placeholder="Explain why this submission cannot proceed"
+                            rows={6}
+                        />
+                    </div>
                     {rejectError && (
-                        <p className="text-sm text-red-600">{rejectError}</p>
+                        <p className="text-sm text-red-600" role="alert">{rejectError}</p>
                     )}
                     <DialogFooter>
                         <Button
@@ -1124,7 +1266,7 @@ export function PendingCapstonesSection() {
                             Cancel
                         </Button>
                         <Button
-                            className="bg-rose-600 hover:bg-rose-700 text-white"
+                            variant="destructive"
                             onClick={handleSubmitReject}
                             disabled={
                                 rejectText.trim().length === 0 ||
@@ -1153,17 +1295,21 @@ export function PendingCapstonesSection() {
                             what to improve.
                         </DialogDescription>
                     </DialogHeader>
-                    <Textarea
-                        value={feedbackText}
-                        onChange={(event) =>
-                            setFeedbackText(event.target.value)
-                        }
-                        placeholder="Detail the updates you would like the team to make..."
-                        rows={8}
-                        className="min-h-[220px]"
-                    />
+                    <div className="space-y-2">
+                        <Label htmlFor="request-capstone-changes">Requested updates</Label>
+                        <Textarea
+                            id="request-capstone-changes"
+                            value={feedbackText}
+                            onChange={(event) =>
+                                setFeedbackText(event.target.value)
+                            }
+                            placeholder="Detail the updates the student team should make"
+                            rows={8}
+                            className="min-h-[220px]"
+                        />
+                    </div>
                     {feedbackError && (
-                        <p className="text-sm text-red-600">{feedbackError}</p>
+                        <p className="text-sm text-red-600" role="alert">{feedbackError}</p>
                     )}
                     <DialogFooter>
                         <Button
