@@ -1,5 +1,5 @@
 from .invites_dl import InvitesDataLogic
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from ..config.database import supabase
 from ..workflow.workflow_utils import get_team_member_ids, is_instructor_scoped_to_team
 
@@ -488,13 +488,29 @@ class InvitesBusinessLogic:
                 "data": None
             }
 
-    def revoke_invite(self, invite_id: str, actor_id: int, actor_role: str = "student") -> Dict[str, Any]:
+    def revoke_invite(
+        self,
+        invite_id: str,
+        actor_id: int,
+        actor_role: str = "student",
+        reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Revoke an invite through the transactional database workflow."""
         try:
+            normalized_role = (actor_role or "student").strip().lower()
+            normalized_reason = (reason or "").strip() or None
+            if normalized_role in {"admin", "instructor"} and normalized_reason is None:
+                return {
+                    "success": False,
+                    "message": "Staff invite revocation requires an audit reason.",
+                    "data": None,
+                }
+
             rpc_result = self.invites_data.revoke_invite_rpc(
                 invite_id=invite_id,
                 actor_id=actor_id,
-                actor_role=actor_role,
+                actor_role=normalized_role,
+                reason=normalized_reason,
             )
             if not rpc_result.get("success"):
                 return {

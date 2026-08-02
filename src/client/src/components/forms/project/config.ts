@@ -4,6 +4,7 @@ import {
     PreliminaryInfoSection,
     ProjectInfoSection,
     ProjectTeamSection,
+    ValidationSection,
     ResourcesSection,
 } from "./";
 import { buildTermOptions } from "@/lib/term-options";
@@ -78,10 +79,11 @@ export const deliverableTypeOptions = [
 
 // --- Form Steps and Section Mappings ---
 export const studentFormSteps: FormStep[] = [
-    { id: 1, name: "Basics", isActive: true, isCompleted: false },
+    { id: 1, name: "Route", isActive: true, isCompleted: false },
     { id: 2, name: "Project", isActive: false, isCompleted: false },
     { id: 3, name: "Team", isActive: false, isCompleted: false },
-    { id: 4, name: "Resources", isActive: false, isCompleted: false },
+    { id: 4, name: "Validation", isActive: false, isCompleted: false },
+    { id: 5, name: "Resources", isActive: false, isCompleted: false },
 ];
 
 export const studentFormSections: Record<
@@ -91,7 +93,8 @@ export const studentFormSections: Record<
     1: PreliminaryInfoSection,
     2: ProjectInfoSection,
     3: ProjectTeamSection,
-    4: ResourcesSection,
+    4: ValidationSection,
+    5: ResourcesSection,
 };
 
 // --- Disciplines ---

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -33,7 +33,19 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { CapstoneModal } from "./CapstoneModal";
-import { CapstoneCard } from "./CapstoneCard";
+import { CapstoneCard } from "@/components/capstones/CapstoneCard";
+import {
+    BrowseClearButton,
+    BrowseEmpty,
+    BrowseLoading,
+    BrowseNotice,
+    BrowsePageHeader,
+    BrowsePageShell,
+    BrowseToolbar,
+    PaginationBar,
+    ResultsSummary,
+} from "@/components/capstones/BrowsePage";
+import { Search } from "lucide-react";
 
 const INTEREST_LIKE_STATUSES = new Set<ProjectExploration["status"]>([
     "interested",
@@ -222,10 +234,11 @@ function DiscoverPageContent() {
     }, [loadMyCapstones]);
 
     useEffect(() => {
-        if (homeDepartmentName && dept === "All") {
-            setDept(homeDepartmentName);
-        }
-    }, [dept, homeDepartmentName]);
+        if (!homeDepartmentName) return;
+        setDept((currentDepartment) =>
+            currentDepartment === "All" ? homeDepartmentName : currentDepartment
+        );
+    }, [homeDepartmentName]);
 
     //
     // HANDLE JOIN PROJECT (opens interest modal)
@@ -297,9 +310,10 @@ function DiscoverPageContent() {
             if (isProjectSavedById(projectId)) {
                 const explorationId = explorationIdByCapstoneId[projectId];
                 if (!explorationId) {
-                    setMarketplaceActionError("Saved project state was out of date. Refreshing your saved projects.");
                     await loadMyCapstones();
-                    return;
+                    throw new Error(
+                        "Saved project state was out of date. Your saved projects were refreshed."
+                    );
                 }
                 await cancelProjectExploration(
                     explorationId,
@@ -349,12 +363,16 @@ function DiscoverPageContent() {
             });
         } catch (err) {
             console.error(err);
-            setMarketplaceActionError(
-                err instanceof Error ? err.message : "Could not save project."
-            );
+            throw err;
         } finally {
             setSavingProjectId(null);
         }
+    };
+
+    const handleSaveProjectError = (error: unknown) => {
+        setMarketplaceActionError(
+            error instanceof Error ? error.message : "Could not update saved projects."
+        );
     };
 
     const handleSubmitMentorOffer = async () => {
@@ -490,7 +508,7 @@ function DiscoverPageContent() {
             return eligibilityError;
         }
         if (invitedCapstoneIds.has(String(project.capstone_id))) {
-            return "You already have an invite to this capstone. Accept or decline it from your dashboard instead.";
+            return "You already have an invite to this capstone. Accept or decline it from Home instead.";
         }
         if (myCapstoneIds.has(String(project.capstone_id))) {
             return "You are already on this capstone team.";
@@ -516,93 +534,121 @@ function DiscoverPageContent() {
         }
     });
 
+    const hasActiveFilters = search.trim() !== "" || dept !== "All" || year !== "All";
+
     return (
-        <div className="min-h-full bg-slate-50 px-2 py-4 sm:px-4">
-            {/* FILTER BAR */}
-            <div className="mx-auto mb-4 w-full max-w-6xl">
-                <div className="mb-4">
-                    <h1 className="text-2xl font-semibold text-slate-900">
-                        Discover Projects
-                    </h1>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">
-                        Review active capstones, save strong fits, and manage project interest.
-                    </p>
-                </div>
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(16rem,1fr)_minmax(12rem,260px)_minmax(8rem,150px)] xl:items-center">
-                <Input
-                    placeholder="Search projects..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="min-w-0"
-                />
+        <BrowsePageShell>
+            <BrowsePageHeader
+                eyebrow={isMentor ? "Mentor marketplace" : "Project marketplace"}
+                title="Discover projects"
+                description={
+                    isMentor
+                        ? "Review recruiting capstones and offer support where your expertise fits."
+                        : "Explore recruiting capstones, save possibilities, or send a thoughtful request to a team."
+                }
+            />
 
-                <Select value={dept} onValueChange={setDept}>
-                    <SelectTrigger className="w-full min-w-0">
-                        <SelectValue placeholder="Filter by department" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="All">All Departments</SelectItem>
-                        {allDepartments.map((d, idx) => (
-                            <SelectItem key={`dept-${idx}-${d}`} value={d}>
-                                {d}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+            <BrowseToolbar>
+                <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-[minmax(16rem,1fr)_minmax(12rem,260px)_minmax(8rem,160px)_auto] xl:items-center">
+                    <label className="relative min-w-0">
+                        <span className="sr-only">Search projects</span>
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                        <Input
+                            placeholder="Search projects"
+                            value={search}
+                            onChange={(event) => setSearch(event.target.value)}
+                            className="min-w-0 pl-9"
+                        />
+                    </label>
 
-                <Select onValueChange={setYear}>
-                    <SelectTrigger className="w-full min-w-0">
-                        <SelectValue placeholder="Filter by year" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="All">All Years</SelectItem>
-                        {allYears.map((y, idx) => (
-                            <SelectItem key={`year-${idx}-${y}`} value={y}>
-                                {y}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+                    <Select value={dept} onValueChange={setDept}>
+                        <SelectTrigger className="w-full min-w-0" aria-label="Filter by department">
+                            <SelectValue placeholder="Department" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="All">All departments</SelectItem>
+                            {allDepartments.map((department, index) => (
+                                <SelectItem key={`dept-${index}-${department}`} value={department}>
+                                    {department}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+
+                    <Select value={year} onValueChange={setYear}>
+                        <SelectTrigger className="w-full min-w-0" aria-label="Filter by year">
+                            <SelectValue placeholder="Year" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="All">All years</SelectItem>
+                            {allYears.map((option, index) => (
+                                <SelectItem key={`year-${index}-${option}`} value={option}>
+                                    {option}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+
+                    <BrowseClearButton
+                        active={hasActiveFilters}
+                        onClear={() => {
+                            setSearch("");
+                            setDept("All");
+                            setYear("All");
+                        }}
+                    />
                 </div>
-            </div>
+            </BrowseToolbar>
 
             {(capstoneError || interestError || marketplaceActionError) && (
-                <p className="mx-auto mb-3 w-full max-w-6xl break-words rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <BrowseNotice tone="error">
                     {capstoneError || interestError || marketplaceActionError}
-                </p>
+                </BrowseNotice>
             )}
             {mentorOfferMessage && (
-                <p
-                    className={`mx-auto mb-3 w-full max-w-6xl break-words rounded-md border px-4 py-3 text-sm ${
+                <BrowseNotice
+                    tone={
                         mentorOfferMessage.toLowerCase().includes("could not") ||
                         mentorOfferMessage.toLowerCase().includes("failed")
-                            ? "border-red-200 bg-red-50 text-red-700"
-                            : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    }`}
+                            ? "error"
+                            : "success"
+                    }
                 >
                     {mentorOfferMessage}
-                </p>
+                </BrowseNotice>
             )}
             {eligibilityError && (
-                <div className="mb-3 flex flex-col items-center justify-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-900 md:flex-row">
-                    <span>{eligibilityError}</span>
-                    <button
-                        type="button"
-                        onClick={loadMyCapstones}
-                        disabled={!eligibilityLoaded}
-                        className="rounded-md border border-amber-300 bg-white px-3 py-1 font-medium text-amber-900 disabled:opacity-60"
-                    >
-                        {eligibilityLoaded ? "Refresh Eligibility" : "Checking..."}
-                    </button>
-                </div>
+                <BrowseNotice
+                    tone="warning"
+                    action={
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={loadMyCapstones}
+                            disabled={!eligibilityLoaded}
+                        >
+                            {eligibilityLoaded ? "Check again" : "Checking…"}
+                        </Button>
+                    }
+                >
+                    {eligibilityError}
+                </BrowseNotice>
             )}
 
-            {/* PROJECT LIST */}
-            <div className="mx-auto w-full max-w-6xl space-y-3 pb-2">
+            {!loading && (
+                <ResultsSummary
+                    count={projects.length}
+                    singular="project"
+                    page={page}
+                    totalPages={totalPages}
+                    detail={isStudent ? "Saved projects stay private until you contact a team." : undefined}
+                />
+            )}
+
+            <section className="space-y-3" aria-label="Project results">
                 {loading ? (
-                    <p className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
-                        Loading projects...
-                    </p>
+                    <BrowseLoading label="Loading recruiting projects…" />
                 ) : projects.length ? (
                     projects.map((p) => (
                         <CapstoneCard
@@ -612,12 +658,18 @@ function DiscoverPageContent() {
                             canExpressInterest={
                                 isMentor ? canOfferMentor(p) : eligibilityLoaded && canExpressInterest(p)
                             }
-                            showSaveAction={false}
+                            showSaveAction={
+                                isStudent &&
+                                eligibilityLoaded &&
+                                (isProjectSavedById(p.capstone_id) || canSaveProject(p))
+                            }
                             isSaved={isProjectSavedById(p.capstone_id)}
                             canSave={canSaveProject(p)}
                             saveBusy={savingProjectId === String(p.capstone_id)}
+                            saveKind="project"
                             onClick={() => setSelectedProject(p)}
                             onSaveClick={() => handleSaveProject(String(p.capstone_id))}
+                            onSaveError={handleSaveProjectError}
                             onInterestClick={() =>
                                 isMentor
                                     ? handleMentorOffer(p.capstone_id)
@@ -628,34 +680,36 @@ function DiscoverPageContent() {
                         />
                     ))
                 ) : (
-                    <p className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
-                        No projects match your filters.
-                    </p>
+                    <BrowseEmpty
+                        title="No projects found"
+                        description="Try a broader search or clear one of the filters above."
+                        action={
+                            hasActiveFilters ? (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                        setSearch("");
+                                        setDept("All");
+                                        setYear("All");
+                                    }}
+                                >
+                                    Clear filters
+                                </Button>
+                            ) : undefined
+                        }
+                    />
                 )}
-            </div>
+            </section>
 
-            {/* PAGINATION */}
-            <div className="mt-4 flex flex-col items-center justify-center gap-3 pb-2 sm:flex-row">
-                <button
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={page === 1 || loading}
-                    className="w-full rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-50 sm:w-auto sm:min-w-28"
-                >
-                    Previous
-                </button>
-
-                <span className="text-sm text-slate-600">
-                    Page {page} of {totalPages}
-                </span>
-
-                <button
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={page >= totalPages || loading}
-                    className="w-full rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-50 sm:w-auto sm:min-w-28"
-                >
-                    Next
-                </button>
-            </div>
+            <PaginationBar
+                page={page}
+                totalPages={totalPages}
+                loading={loading}
+                onPrevious={() => setPage((current) => Math.max(1, current - 1))}
+                onNext={() => setPage((current) => Math.min(totalPages, current + 1))}
+            />
 
             {/* DETAIL MODAL */}
             <CapstoneModal
@@ -677,6 +731,29 @@ function DiscoverPageContent() {
                 }
                 actionLabel={isMentor ? "Offer Mentor Support" : "Join Project"}
                 actionKind={isMentor ? "mentor" : "interest"}
+                showSaveAction={
+                    !!selectedProject &&
+                    isStudent &&
+                    eligibilityLoaded &&
+                    (isProjectSavedById(selectedProject.capstone_id) ||
+                        canSaveProject(selectedProject))
+                }
+                saveKind="project"
+                isSaved={
+                    !!selectedProject &&
+                    isProjectSavedById(selectedProject.capstone_id)
+                }
+                canSave={!!selectedProject && canSaveProject(selectedProject)}
+                saveBusy={
+                    !!selectedProject &&
+                    savingProjectId === String(selectedProject.capstone_id)
+                }
+                onSaveClick={
+                    selectedProject
+                        ? () => handleSaveProject(String(selectedProject.capstone_id))
+                        : undefined
+                }
+                onSaveError={handleSaveProjectError}
                 additionalMetadata={
                     selectedProject &&
                     isStudent &&
@@ -738,7 +815,7 @@ function DiscoverPageContent() {
                         <DialogTitle>Invite Already Pending</DialogTitle>
                         <DialogDescription>
                             You already have an invite to this capstone. Accept
-                            or decline the invite from your dashboard instead of
+                            or decline the invite from Home instead of
                             sending an interest request.
                         </DialogDescription>
                     </DialogHeader>
@@ -755,12 +832,12 @@ function DiscoverPageContent() {
                                 router.push("/dashboard");
                             }}
                         >
-                            Go to Dashboard
+                            Go to Home
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div>
+        </BrowsePageShell>
     );
 }
 
@@ -771,4 +848,3 @@ export default function DiscoverPage() {
         </ProtectedRoute>
     );
 }
-

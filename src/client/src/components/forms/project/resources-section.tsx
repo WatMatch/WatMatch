@@ -73,8 +73,6 @@ export function ResourcesSection({ control }: FormSectionProps) {
 
     return (
         <div className="space-y-4">
-            <h2 className="text-lg font-semibold">Required Resources</h2>
-
             <FormField
                 control={control}
                 name="uwResources"
@@ -128,7 +126,10 @@ export function ResourcesSection({ control }: FormSectionProps) {
                             <span className="text-red-500">*</span>
                         </FormLabel>
                         <FormControl>
-                            <Textarea {...field} />
+                            <Textarea
+                                {...field}
+                                placeholder="Enter none if no other resources are needed."
+                            />
                         </FormControl>
                         <FormMessage />
                     </FormItem>
@@ -141,7 +142,7 @@ export function ResourcesSection({ control }: FormSectionProps) {
                 capstone.
             </div>
 
-            <h2 className="text-lg font-semibold">External Partner</h2>
+            <h3 className="pt-1 text-sm font-semibold text-slate-950">External partner</h3>
 
             {hasLinkedOpportunity && (
                 <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
@@ -284,9 +285,113 @@ export function ResourcesSection({ control }: FormSectionProps) {
                     variant="outline"
                     onClick={clearExternalPartnerDetails}
                 >
-                    Clear Partner Details
+                    Clear partner details
                 </Button>
             </div>
+
+            <section className="space-y-3 border-t border-slate-200 pt-4">
+                <div>
+                    <h3 className="text-sm font-semibold text-slate-950">
+                        Agreements
+                    </h3>
+                    <p className="mt-1 text-sm text-slate-600">
+                        Review and acknowledge each requirement before submitting.
+                    </p>
+                </div>
+
+                <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+                    <FormField
+                        control={control}
+                        name="publicEvaluationAcknowledged"
+                        rules={{
+                            validate: (value) =>
+                                value === true ||
+                                "Public evaluation acknowledgement is required",
+                        }}
+                        render={({ field }) => (
+                            <FormItem className="flex items-start gap-3 space-y-0">
+                                <FormControl>
+                                    <Checkbox
+                                        checked={field.value}
+                                        onCheckedChange={(checked) =>
+                                            field.onChange(checked === true)
+                                        }
+                                    />
+                                </FormControl>
+                                <div className="space-y-1">
+                                    <FormLabel className="text-sm font-medium">
+                                        I understand the project may be evaluated in a
+                                        public academic setting. {" "}
+                                        <span className="text-red-500">*</span>
+                                    </FormLabel>
+                                    <FormMessage />
+                                </div>
+                            </FormItem>
+                        )}
+                    />
+
+                    <FormField
+                        control={control}
+                        name="ipAcknowledged"
+                        rules={{
+                            validate: (value) =>
+                                value === true ||
+                                "IP policy acknowledgement is required",
+                        }}
+                        render={({ field }) => (
+                            <FormItem className="flex items-start gap-3 space-y-0">
+                                <FormControl>
+                                    <Checkbox
+                                        checked={field.value}
+                                        onCheckedChange={(checked) =>
+                                            field.onChange(checked === true)
+                                        }
+                                    />
+                                </FormControl>
+                                <div className="space-y-1">
+                                    <FormLabel className="text-sm font-medium">
+                                        I have reviewed the capstone IP policy
+                                        expectations. {" "}
+                                        <span className="text-red-500">*</span>
+                                    </FormLabel>
+                                    <FormMessage />
+                                </div>
+                            </FormItem>
+                        )}
+                    />
+
+                    <FormField
+                        control={control}
+                        name="confidentialityAcknowledged"
+                        rules={{
+                            validate: (value) =>
+                                value === true ||
+                                "Confidentiality/NDA acknowledgement is required",
+                        }}
+                        render={({ field }) => (
+                            <FormItem className="flex items-start gap-3 space-y-0">
+                                <FormControl>
+                                    <Checkbox
+                                        checked={field.value}
+                                        onCheckedChange={(checked) =>
+                                            field.onChange(checked === true)
+                                        }
+                                    />
+                                </FormControl>
+                                <div className="space-y-1">
+                                    <FormLabel className="text-sm font-medium">
+                                        I understand NDA/confidentiality needs must be
+                                        discussed before relying on private project
+                                        material. {" "}
+                                        <span className="text-red-500">*</span>
+                                    </FormLabel>
+                                    <FormMessage />
+                                </div>
+                            </FormItem>
+                        )}
+                    />
+                </div>
+            </section>
         </div>
     );
 }

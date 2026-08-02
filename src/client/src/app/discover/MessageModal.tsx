@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 
 interface MessageModalProps {
     isOpen: boolean;
@@ -34,18 +35,21 @@ export function MessageModal({
 }: MessageModalProps) {
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="space-y-4">
+            <DialogContent className="gap-5 sm:max-w-lg">
                 <DialogHeader>
                     <DialogTitle>{title}</DialogTitle>
                     <DialogDescription>{description}</DialogDescription>
                 </DialogHeader>
-                <Textarea
-                    value={message}
-                    onChange={(event) => onMessageChange(event.target.value)}
-                    placeholder="Your message..."
-                    rows={6}
-                    className="min-h-[160px]"
-                />
+                <div className="space-y-2">
+                    <Label htmlFor="project-action-message">Message <span className="font-normal text-slate-500">(optional)</span></Label>
+                    <Textarea
+                        id="project-action-message"
+                        value={message}
+                        onChange={(event) => onMessageChange(event.target.value)}
+                        placeholder="Share useful context with the team"
+                        rows={5}
+                    />
+                </div>
                 <DialogFooter>
                     <Button
                         variant="outline"
@@ -55,7 +59,7 @@ export function MessageModal({
                         Cancel
                     </Button>
                     <Button onClick={onSubmit} disabled={isSubmitting}>
-                        {isSubmitting ? "Saving..." : submitLabel}
+                        {isSubmitting ? "Saving…" : submitLabel}
                     </Button>
                 </DialogFooter>
             </DialogContent>

@@ -3,7 +3,7 @@ import logging
 from pydantic import BaseModel, Field
 from .invites_bl import InvitesBusinessLogic
 from ..auth.dependencies import get_current_user
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 router = APIRouter(prefix="/invites", tags=["invites"])
 invites_business = InvitesBusinessLogic()
@@ -25,6 +25,7 @@ class DeclineInviteRequest(BaseModel):
 
 class RevokeInviteRequest(BaseModel):
     invite_id: str = Field(..., min_length=1, max_length=32)
+    reason: Optional[str] = Field(default=None, max_length=2000)
 
 
 @router.post("/")
@@ -216,6 +217,7 @@ async def revoke_invite(
             request.invite_id,
             user_id,
             current_user.get("role") or "student",
+            request.reason,
         )
 
         if not result["success"]:

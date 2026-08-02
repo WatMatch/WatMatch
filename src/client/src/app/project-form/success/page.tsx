@@ -4,47 +4,49 @@ import { Button } from "@/components/ui/button";
 import {
     Card,
     CardContent,
-    CardDescription,
     CardHeader,
     CardTitle,
 } from "@/components/ui/card";
-import { CheckCircle } from "lucide-react";
+import { Check, Clock3 } from "lucide-react";
+import { BrowsePageShell } from "@/components/capstones/BrowsePage";
 
 function ProjectFormSuccessContent() {
     return (
-        <div className="max-w-2xl mx-auto flex items-center justify-center min-h-full p-8">
-            <Card className="text-center">
-                <CardHeader className="pb-4">
-                    <div className="flex justify-center mb-4">
-                        <CheckCircle className="h-16 w-16 text-green-500" />
+        <BrowsePageShell className="flex min-h-full items-center">
+            <Card className="mx-auto w-full max-w-xl gap-0 p-0">
+                <CardHeader className="border-b border-slate-100 bg-slate-50/60 px-5 py-5 sm:px-6">
+                    <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                        <Check className="h-5 w-5" aria-hidden="true" />
                     </div>
-                    <CardTitle className="text-2xl text-green-700">
-                        Form Submitted Successfully!
+                    <CardTitle className="text-xl text-slate-950">
+                        Proposal submitted
                     </CardTitle>
-                    <CardDescription className="text-lg">
-                        Your project submission has been received.
-                    </CardDescription>
+                    <p className="text-sm leading-6 text-slate-600">
+                        WatMatch received your capstone proposal.
+                    </p>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                        <p className="text-green-800">
-                            Thank you for submitting your project! Your
-                            submission will move through any required course routing
-                            before instructor review.
-                        </p>
+                <CardContent className="space-y-5 px-5 py-5 sm:px-6">
+                    <div className="flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50/70 p-4 text-blue-950">
+                        <Clock3 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                        <div>
+                            <p className="text-sm font-medium">What happens next</p>
+                            <p className="mt-1 text-sm leading-6">
+                                If the course route needs staff review, it will be resolved before the proposal reaches the coordinating instructor. Track updates from Home.
+                            </p>
+                        </div>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row gap-4 justify-center pt-6">
-                        <Button asChild>
-                            <Link href="/discover">Explore Other Projects</Link>
-                        </Button>
+                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                         <Button variant="outline" asChild>
-                            <Link href="/dashboard">Go To Dashboard</Link>
+                            <Link href="/discover">Browse projects</Link>
+                        </Button>
+                        <Button asChild>
+                            <Link href="/dashboard">Go to Home</Link>
                         </Button>
                     </div>
                 </CardContent>
             </Card>
-        </div>
+        </BrowsePageShell>
     );
 }
 
