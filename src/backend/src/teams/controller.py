@@ -53,6 +53,26 @@ class ManagedTeamCreateRequest(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=2000)
 
 
+@router.get("/capstone/{capstone_id}/context")
+async def get_capstone_team_context(
+    capstone_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    result = teams_business.get_capstone_team_context(
+        capstone_id=capstone_id,
+        actor_id=int(current_user["user_id"]),
+        actor_role=current_user.get("role") or "",
+    )
+    if not result["success"]:
+        message = result["message"].lower()
+        if "not found" in message:
+            raise HTTPException(status_code=404, detail=result["message"])
+        if "forbidden" in message or "access required" in message:
+            raise HTTPException(status_code=403, detail=result["message"])
+        raise HTTPException(status_code=500, detail=result["message"])
+    return result
+
+
 @router.post("/create-empty")
 async def create_empty_team(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     if current_user.get("role") != "student":
