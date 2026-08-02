@@ -16,6 +16,7 @@ import { FormSectionProps } from "./types";
 import { skills } from "./config";
 import { MultiSelect } from "@/components/ui/multiselect";
 import { fetchSkills } from "@/services/skills.service";
+import { taxonomyChipClassName } from "@/components/ui/taxonomy-chip";
 import { useEffect, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -42,8 +43,6 @@ export function ProjectTeamSection({ control }: FormSectionProps) {
 
     return (
         <div className="space-y-4">
-            <h2 className="text-lg font-semibold">Project Team</h2>
-
             <FormField
                 control={control}
                 name="meetingFrequency"
@@ -103,6 +102,7 @@ export function ProjectTeamSection({ control }: FormSectionProps) {
                                 placeholder="Search and select skills..."
                                 allowCustom
                                 customLabel="Add skill"
+                                chipClassName={() => taxonomyChipClassName("skill")}
                             />
                         </FormControl>
                         <FormMessage />

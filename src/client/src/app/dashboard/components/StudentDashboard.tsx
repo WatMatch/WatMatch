@@ -1,12 +1,30 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AlertTriangle, Loader2, Crown, UserPlus } from "lucide-react";
+import {
+    BookOpen,
+    CheckCircle2,
+    Clock3,
+    FolderOpen,
+    History,
+    Loader2,
+    Mail,
+    UserPlus,
+    Users,
+} from "lucide-react";
+import {
+    CapstoneCard,
+    FinalizationReadiness,
+    getCapstoneStatusLabel,
+    OfficialTeamRoster,
+    OfficialTeamRosterSkeleton,
+    ProjectSupportSummary,
+} from "@/components/capstones/CapstoneCard";
 import {
     Select,
     SelectContent,
@@ -27,16 +45,19 @@ import { userContext } from "@/contexts/UserContext";
 import { useTeam, type TeamData } from "@/hooks/useTeam";
 import {
     fetchTeamInvites,
+    fetchCapstoneTeamContext,
     finalizeTeam,
     inviteTeammate,
     reassignLeader,
     revokeInvite,
+    type CapstoneTeamContext,
+    type CapstoneTeamContextMember,
     type TeamPendingInvite,
 } from "@/services/teams.service";
 import {
-    fetchStudentProfileById,
-    type StudentProfile,
-} from "@/services/users.service";
+    StudentProfileDialog,
+    type StudentProfileIdentity,
+} from "@/components/students/StudentProfileDialog";
 import {
     fetchCapstoneApprovalHistory,
     fetchActiveMentors,
@@ -52,33 +73,16 @@ import {
     type MentorUserSummary,
     type PastCapstone,
 } from "@/services/capstones.service";
-
-function profileList(values?: string[] | null): string[] {
-    return Array.isArray(values) ? values.filter(Boolean) : [];
-}
-
-function profileLinks(profile: StudentProfile | null) {
-    if (!profile) return [];
-    return [
-        { label: "Portfolio", href: profile.portfolio_url },
-        { label: "LinkedIn", href: profile.linkedin_url },
-        { label: "GitHub", href: profile.github_url },
-    ].filter((link): link is { label: string; href: string } => Boolean(link.href));
-}
-
-function hasProfileContent(profile: StudentProfile | null): boolean {
-    if (!profile) return false;
-    return Boolean(
-        profile.headline ||
-            profile.about_me ||
-            profile.availability ||
-            profileList(profile.skills).length ||
-            profileList(profile.preferred_roles).length ||
-            profileList(profile.project_interests).length ||
-            (profile.interested_departments || []).length ||
-            profileLinks(profile).length
-    );
-}
+import {
+    ConfirmActionDialog,
+    Disclosure,
+    EmptyState,
+    Notice,
+    PageHeader,
+    PageShell,
+    SectionHeader,
+    StatusBadge,
+} from "@/components/ui/workspace";
 
 function mentorDirectoryLabel(mentor: MentorUserSummary): string {
     const profile = mentor.profile;
@@ -101,43 +105,77 @@ function normalizeMarketplacePhase(phase?: string | null): MarketplacePhase {
     return "exploration";
 }
 
-type ReadinessItem = {
-    label: string;
-    ready: boolean;
-    detail: string;
-};
+function marketplacePhaseLabel(phase: MarketplacePhase): string {
+    return `${phase.charAt(0).toUpperCase()}${phase.slice(1)}`;
+}
 
-function FinalizationReadinessChecklist({ items }: { items: ReadinessItem[] }) {
-    if (items.length === 0) return null;
-    const readyCount = items.filter((item) => item.ready).length;
+function fallbackRosterMembers(
+    team: TeamData,
+    currentUserId: number | null
+): CapstoneTeamContextMember[] {
+    const leaderId =
+        team.leader_fk ?? (team.is_leader && currentUserId ? currentUserId : null);
+
+    return team.team_members
+        .map((member): CapstoneTeamContextMember | null => {
+            const userId = Number(member.user_id);
+            if (!Number.isInteger(userId) || userId <= 0) return null;
+            const homeDepartment =
+                typeof member.home_department === "string"
+                    ? { name: member.home_department }
+                    : member.home_department;
+            return {
+                user_id: userId,
+                email: member.email,
+                is_leader: leaderId !== null && userId === Number(leaderId),
+                course_fk: member.course_fk,
+                course: member.course,
+                enrollment_course_fk: member.enrollment_course_fk,
+                enrollment_course: member.enrollment_course,
+                home_department_id: member.home_department_id,
+                home_department: homeDepartment,
+            };
+        })
+        .filter((member): member is CapstoneTeamContextMember => member !== null)
+        .sort((left, right) => Number(Boolean(right.is_leader)) - Number(Boolean(left.is_leader)));
+}
+
+function TeamContextPanelSkeleton({ label }: { label: string }) {
     return (
-        <div className="rounded border border-slate-200 bg-slate-50 p-3">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                    Finalization Readiness
-                </h3>
-                <span className="text-xs text-slate-500">
-                    {readyCount}/{items.length} ready
-                </span>
+        <div className="space-y-2" aria-label={`Loading ${label.toLowerCase()}`}>
+            <div className="h-3 w-32 animate-pulse rounded bg-slate-200" />
+            <div className="grid min-h-16 gap-2 sm:grid-cols-2">
+                <div className="h-16 animate-pulse rounded-lg border border-slate-200 bg-slate-100" />
+                <div className="h-16 animate-pulse rounded-lg border border-slate-200 bg-slate-100" />
             </div>
-            <ul className="mt-3 space-y-2">
-                {items.map((item) => (
-                    <li key={item.label} className="flex gap-2 text-sm">
-                        <span
-                            className={`mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ${
-                                item.ready ? "bg-emerald-500" : "bg-amber-400"
-                            }`}
-                            aria-hidden="true"
-                        />
-                        <div>
-                            <p className="font-medium text-slate-800">{item.label}</p>
-                            <p className="text-xs text-slate-600">{item.detail}</p>
-                        </div>
-                    </li>
-                ))}
-            </ul>
         </div>
     );
+}
+
+function projectStatusTone(
+    status?: string | null
+): "neutral" | "info" | "success" | "warning" | "danger" | "accent" {
+    const normalized = String(status || "").toLowerCase();
+    if (["approved", "complete", "approved_recruiting", "committed"].includes(normalized)) {
+        return "success";
+    }
+    if (["changes_requested", "rejected", "declined", "expired"].includes(normalized)) {
+        return "danger";
+    }
+    if (
+        [
+            "pending_review",
+            "pending_admin_course_routing",
+            "pending_commitment",
+            "invited",
+        ].includes(normalized)
+    ) {
+        return "warning";
+    }
+    if (["interested", "exploring"].includes(normalized)) {
+        return "info";
+    }
+    return "neutral";
 }
 
 export function StudentDashboard() {
@@ -170,16 +208,13 @@ export function StudentDashboard() {
     } = useTeam(user?.user_id);
 
     const [selectedTeam, setSelectedTeam] = useState<TeamData | null>(null);
+    const teamDialogOpenerRef = useRef<HTMLElement | null>(null);
     const [showInviteModal, setShowInviteModal] = useState(false);
     const [inviteEmail, setInviteEmail] = useState("");
     const [emailError, setEmailError] = useState("");
     const [inviteLoading, setInviteLoading] = useState(false);
-    const [showStudentProfileModal, setShowStudentProfileModal] =
-        useState(false);
-    const [selectedStudentProfile, setSelectedStudentProfile] =
-        useState<StudentProfile | null>(null);
-    const [selectedStudentEmail, setSelectedStudentEmail] = useState("");
-    const [loadingStudentProfile, setLoadingStudentProfile] = useState(false);
+    const [profileStudent, setProfileStudent] =
+        useState<StudentProfileIdentity | null>(null);
     const [approvalHistory, setApprovalHistory] = useState<ApprovalHistoryRecord[]>([]);
     const [loadingApprovalHistory, setLoadingApprovalHistory] = useState(false);
     const [isReassignOpen, setIsReassignOpen] = useState(false);
@@ -203,6 +238,9 @@ export function StudentDashboard() {
     const [mentorDataLoading, setMentorDataLoading] = useState(false);
     const [mentorDataError, setMentorDataError] = useState("");
     const [mentorActionLoading, setMentorActionLoading] = useState<string | null>(null);
+    const [teamContext, setTeamContext] = useState<CapstoneTeamContext | null>(null);
+    const [teamContextLoading, setTeamContextLoading] = useState(false);
+    const [teamContextError, setTeamContextError] = useState("");
     const [savedPastCapstones, setSavedPastCapstones] = useState<PastCapstone[]>([]);
     const [savedPastLoading, setSavedPastLoading] = useState(false);
     const [savedPastError, setSavedPastError] = useState("");
@@ -230,7 +268,6 @@ export function StudentDashboard() {
         inviteId: string;
         capstoneTitle?: string | null;
     } | null>(null);
-    const scrollContainerRef = useRef<HTMLDivElement>(null);
 
     const getErrorMessage = (error: unknown, fallback: string) =>
         error instanceof Error ? error.message : fallback;
@@ -319,18 +356,7 @@ export function StudentDashboard() {
         Number.isInteger(currentUserId) && Number(value) === currentUserId;
 
     const getStatusLabel = (status?: string | null) => {
-        const normalized = (status || "").toLowerCase();
-        const labels: Record<string, string> = {
-            draft: "Draft",
-            approved_recruiting: "Approved - Recruiting",
-            pending_review: "Awaiting Instructor Review",
-            pending_admin_course_routing: "Awaiting Course Routing",
-            approved: "Finalized",
-            complete: "Complete",
-            rejected: "Rejected",
-            changes_requested: "Changes Requested",
-        };
-        return labels[normalized] || "In Review";
+        return getCapstoneStatusLabel(status) || "In review";
     };
 
     const getStatusBadgeClass = (status?: string | null) => {
@@ -363,13 +389,13 @@ export function StudentDashboard() {
         const normalized = (status || "").toLowerCase();
         const labels: Record<string, string> = {
             shortlisted: "Saved",
-            interested: "Request Sent",
+            interested: "Request sent",
             invited: "Invited",
             exploring: "Exploring",
-            pending_commitment: "Awaiting Staff Routing",
+            pending_commitment: "Awaiting staff routing",
             withdrawn: "Withdrawn",
             declined: "Declined",
-            not_selected: "Not Selected",
+            not_selected: "Not selected",
             expired: "Expired",
             committed: "Committed",
         };
@@ -530,6 +556,31 @@ export function StudentDashboard() {
                 selectedProjectPhase === "commitment"));
     const selectedProjectIsFinalization = selectedProjectPhase === "finalization";
 
+    const loadTeamContextForTeam = async (team: TeamData | null) => {
+        const capstoneId = team?.project?.capstone_id;
+        if (!capstoneId) {
+            setTeamContext(null);
+            setTeamContextError("");
+            setTeamContextLoading(false);
+            return;
+        }
+
+        setTeamContextLoading(true);
+        setTeamContextError("");
+        try {
+            const context = await fetchCapstoneTeamContext(capstoneId);
+            setTeamContext(context);
+        } catch (error) {
+            console.error("Failed to load official team context:", error);
+            setTeamContext(null);
+            setTeamContextError(
+                getErrorMessage(error, "Failed to load official team context.")
+            );
+        } finally {
+            setTeamContextLoading(false);
+        }
+    };
+
     const loadMentorDataForTeam = async (team: TeamData | null) => {
         const capstoneId = team?.project?.capstone_id;
         if (!team?.is_leader || !capstoneId) {
@@ -660,20 +711,27 @@ export function StudentDashboard() {
         ) ?? false;
     };
 
-    const handleViewStudentProfile = async (userId: string, email: string) => {
-        setShowStudentProfileModal(true);
-        setSelectedStudentEmail(email);
-        setLoadingStudentProfile(true);
-        setSelectedStudentProfile(null);
+    const handleViewStudentProfile = (
+        userId: string | number,
+        email: string,
+        courseLabel?: string | null,
+        departmentLabel?: string | null,
+        isLeader?: boolean
+    ) => {
+        setProfileStudent({
+            userId,
+            email,
+            courseLabel,
+            departmentLabel,
+            isLeader,
+        });
+    };
 
-        try {
-            const profile = await fetchStudentProfileById(userId);
-            setSelectedStudentProfile(profile);
-        } catch (error) {
-            console.error("Failed to load student profile:", error);
-        } finally {
-            setLoadingStudentProfile(false);
-        }
+    const handleOpenTeamWorkspace = (team: TeamData) => {
+        setTeamContext(null);
+        setTeamContextError("");
+        setTeamContextLoading(Boolean(team.project?.capstone_id));
+        setSelectedTeam(team);
     };
 
     const handleInviteSubmit = async () => {
@@ -849,7 +907,10 @@ export function StudentDashboard() {
             });
             setSelectedMentorId(NO_MENTOR);
             setMentorMessage("");
-            await loadMentorDataForTeam(selectedTeam);
+            await Promise.all([
+                loadMentorDataForTeam(selectedTeam),
+                loadTeamContextForTeam(selectedTeam),
+            ]);
         } catch (error) {
             console.error("Failed to request mentor:", error);
             setMentorDataError(getErrorMessage(error, "Failed to request mentor."));
@@ -870,7 +931,10 @@ export function StudentDashboard() {
                 decision,
                 response_note: null,
             });
-            await loadMentorDataForTeam(selectedTeam);
+            await Promise.all([
+                loadMentorDataForTeam(selectedTeam),
+                loadTeamContextForTeam(selectedTeam),
+            ]);
         } catch (error) {
             console.error("Failed to decide mentor offer:", error);
             setMentorDataError(getErrorMessage(error, "Failed to save mentor offer decision."));
@@ -887,7 +951,10 @@ export function StudentDashboard() {
             await cancelMentorRequest(request.mentor_request_id, {
                 reason: "Team cancelled the mentor request.",
             });
-            await loadMentorDataForTeam(selectedTeam);
+            await Promise.all([
+                loadMentorDataForTeam(selectedTeam),
+                loadTeamContextForTeam(selectedTeam),
+            ]);
         } catch (error) {
             console.error("Failed to cancel mentor request:", error);
             setMentorDataError(getErrorMessage(error, "Failed to cancel mentor request."));
@@ -940,6 +1007,17 @@ export function StudentDashboard() {
         selectedTeam?.project?.status,
         selectedTeam?.status,
         selectedTeam?.team_id,
+    ]);
+
+    useEffect(() => {
+        loadTeamContextForTeam(selectedTeam);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        selectedTeam?.project?.capstone_id,
+        selectedTeam?.project?.status,
+        selectedTeam?.status,
+        selectedTeam?.team_id,
+        selectedTeam?.team_members.length,
     ]);
 
     useEffect(() => {
@@ -1046,9 +1124,12 @@ export function StudentDashboard() {
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center min-h-screen bg-slate-50">
-                <Loader2 className="w-8 h-8 animate-spin text-slate-600" />
-            </div>
+            <PageShell>
+                <Card className="flex min-h-48 items-center justify-center gap-3 p-6 text-sm text-slate-600">
+                    <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+                    Loading your capstone workspace…
+                </Card>
+            </PageShell>
         );
     }
 
@@ -1098,7 +1179,8 @@ export function StudentDashboard() {
         !selectedTeamRosterAlreadyConfirmed &&
         selectedTeamMutuallyConfirmedCandidates.length > 0;
     const selectedTeamCanRequestMentor = canRequestMentorForTeam(selectedTeam);
-    const acceptedMentor = mentorSupportSummary?.accepted_mentor;
+    const visibleSupportSummary = teamContext?.support_summary || mentorSupportSummary;
+    const acceptedMentor = visibleSupportSummary?.accepted_mentor;
     const pendingMentorRequests = mentorRequests.filter(
         (request) =>
             request.status === "pending" && request.request_source !== "mentor_offer"
@@ -1106,6 +1188,14 @@ export function StudentDashboard() {
     const pendingMentorOffers = mentorRequests.filter(
         (request) =>
             request.status === "pending" && request.request_source === "mentor_offer"
+    );
+    const showMentorManagement = Boolean(
+        selectedTeam?.is_leader &&
+            (mentorDataLoading ||
+                mentorDataError ||
+                pendingMentorRequests.length > 0 ||
+                pendingMentorOffers.length > 0 ||
+                (selectedTeamCanRequestMentor && !acceptedMentor))
     );
     const blockedMentorIds = new Set(
         mentorRequests
@@ -1115,315 +1205,399 @@ export function StudentDashboard() {
     const availableMentors = mentorOptions.filter(
         (mentor) => !blockedMentorIds.has(Number(mentor.user_id))
     );
-    const finalizeSupportMissing =
-        mentorSupportSummary?.requires_project_support !== false &&
-        mentorSupportSummary?.has_support !== true;
-    const selectedTeamPendingRoutingCount = selectedTeam
-        ? pendingCommitments.filter(
-              (request) => Number(request.team_fk) === Number(selectedTeam.team_id)
-          ).length +
-          (selectedTeam.exploring_students || []).filter(
-              (student) => (student.status || "").toLowerCase() === "pending_commitment"
-          ).length
+    const finalizeSupportMissing = Boolean(
+        teamContext?.readiness.items.find((item) => item.key === "project_support")
+            ?.ready === false
+    );
+    const primaryTeam = teams[0];
+    const primaryProjectStatus = (primaryTeam?.project?.status || "").toLowerCase();
+    const primaryCandidateCount = primaryTeam?.is_leader
+        ? primaryTeam.interested_students.length
         : 0;
-    const selectedTeamUnresolvedConfirmedExplorations = (
-        selectedTeam?.exploring_students || []
-    ).filter((student) => {
-        const status = (student.status || "exploring").toLowerCase();
-        return (
-            ["exploring", "pending_commitment"].includes(status) &&
-            hasStudentCommitmentConfirmation(student) &&
-            hasTeamCommitmentConfirmation(student)
-        );
-    });
-    const selectedTeamLeaderLooksValid = Boolean(
-        selectedTeam &&
-            selectedTeam.team_members.length > 0 &&
-            (selectedTeam.leader_fk || selectedTeam.is_leader)
-    );
-    const selectedTeamEnrollmentLooksValid = Boolean(
-        selectedTeam &&
-            selectedTeam.team_members.length > 0 &&
-            selectedTeam.team_members.every((member) => {
-                const courseId =
-                    member.enrollment_course?.course_id ??
-                    member.enrollment_course_fk ??
-                    member.course?.course_id ??
-                    member.course_fk;
-                const course = member.enrollment_course || member.course;
-                return Boolean(courseId) &&
-                    course?.active !== false &&
-                    (
-                        course?.active_instructor_count === undefined ||
-                        Number(course.active_instructor_count) > 0
-                    );
-            })
-    );
-    const finalizationReadinessItems: ReadinessItem[] =
-        selectedTeam?.is_leader && selectedTeam.project
-            ? [
-                  {
-                      label: "Capstone approved for recruiting",
-                      ready: selectedTeamIsRecruiting,
-                      detail: selectedTeamIsRecruiting
-                          ? "Instructor review has approved this project for recruiting."
-                          : "Only approved recruiting projects can be finalized.",
-                  },
-                  {
-                      label: "Required support satisfied",
-                      ready: !finalizeSupportMissing,
-                      detail: mentorDataLoading
-                          ? "Checking mentor and external partner support..."
-                          : !finalizeSupportMissing
-                            ? "Mentor/external partner support is attached or not required."
-                            : "Attach an accepted mentor or confirmed external partner first.",
-                  },
-                  {
-                      label: "No pending staff routing",
-                      ready: selectedTeamPendingRoutingCount === 0,
-                      detail:
-                          selectedTeamPendingRoutingCount === 0
-                              ? "No final commitment routing is waiting on staff."
-                              : `${selectedTeamPendingRoutingCount} commitment routing item${selectedTeamPendingRoutingCount === 1 ? "" : "s"} must be resolved first.`,
-                  },
-                  {
-                      label: "No unresolved confirmed explorations",
-                      ready: selectedTeamUnresolvedConfirmedExplorations.length === 0,
-                      detail:
-                          selectedTeamUnresolvedConfirmedExplorations.length === 0
-                              ? "No mutually confirmed exploration is still awaiting commitment resolution."
-                              : "Resolve mutually confirmed explorations before finalizing.",
-                  },
-                  {
-                      label: "Team identity valid",
-                      ready: selectedTeamLeaderLooksValid,
-                      detail: selectedTeamLeaderLooksValid
-                          ? "The team has confirmed members and a leader."
-                          : "A finalized team needs at least one member and a leader.",
-                  },
-                  {
-                      label: "Official enrollment recorded",
-                      ready: selectedTeamEnrollmentLooksValid,
-                      detail: selectedTeamEnrollmentLooksValid
-                          ? "Every official member has an enrollment course recorded."
-                          : "Every official member needs an active staffed enrollment course before finalization.",
-                  },
-              ]
-            : [];
+    const nextSteps: Array<{
+        id: string;
+        title: string;
+        detail: string;
+        state: "attention" | "waiting" | "complete";
+        actionLabel?: string;
+        onAction?: () => void;
+    }> = [];
+
+    if (hasInvites) {
+        nextSteps.push({
+            id: "invitations",
+            title: `Review ${invites.length} team invitation${invites.length === 1 ? "" : "s"}`,
+            detail: "Accepting begins exploration; official membership comes later through mutual commitment and routing.",
+            state: "attention",
+            actionLabel: "Review invitations",
+            onAction: () =>
+                document
+                    .getElementById("invitations-heading")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+        });
+    }
+
+    if (primaryTeam?.is_leader && !primaryTeam.project) {
+        nextSteps.push({
+            id: "proposal",
+            title: "Create your team proposal",
+            detail: "Your team workspace is ready. Add the project route, plan, team needs, resources, and agreements.",
+            state: "attention",
+            actionLabel: "Start proposal",
+            onAction: () => router.push("/project-form"),
+        });
+    } else if (
+        primaryTeam?.is_leader &&
+        primaryTeam.project &&
+        ["draft", "changes_requested", "rejected"].includes(primaryProjectStatus)
+    ) {
+        nextSteps.push({
+            id: "revision",
+            title:
+                primaryProjectStatus === "draft"
+                    ? "Finish your draft proposal"
+                    : "Revise your proposal",
+            detail:
+                primaryProjectStatus === "draft"
+                    ? "Complete the draft and submit it for instructor review."
+                    : "Address the instructor feedback and summarize what changed before resubmitting.",
+            state: "attention",
+            actionLabel:
+                primaryProjectStatus === "draft" ? "Open draft" : "Open revision form",
+            onAction: () =>
+                router.push(
+                    `/project-form/resubmit/${primaryTeam.project?.capstone_id}`
+                ),
+        });
+    }
+
+    if (primaryTeam && primaryCandidateCount > 0) {
+        nextSteps.push({
+            id: "candidates",
+            title: `Review ${primaryCandidateCount} join request${primaryCandidateCount === 1 ? "" : "s"}`,
+            detail: "Open a student profile when you need more context, then start exploration or reject with a reason.",
+            state: "attention",
+            actionLabel: "Review requests",
+            onAction: () => handleOpenTeamWorkspace(primaryTeam),
+        });
+    }
+
+    if (pendingCommitments.length > 0) {
+        nextSteps.push({
+            id: "routing",
+            title: "Wait for course routing",
+            detail: "Both sides confirmed commitment. Staff is resolving the coordinating and per-student enrollment routes.",
+            state: "waiting",
+        });
+    } else if (
+        primaryTeam?.project &&
+        ["pending_review", "pending_admin_course_routing"].includes(primaryProjectStatus)
+    ) {
+        nextSteps.push({
+            id: "review",
+            title:
+                primaryProjectStatus === "pending_review"
+                    ? "Instructor review in progress"
+                    : "Course routing in progress",
+            detail: "No action is required unless staff or the instructor returns the proposal.",
+            state: "waiting",
+        });
+    } else if (
+        primaryTeam?.project &&
+        ["approved", "complete"].includes(primaryProjectStatus)
+    ) {
+        nextSteps.push({
+            id: "finalized",
+            title: primaryProjectStatus === "complete" ? "Capstone completed" : "Team finalized",
+            detail: "The official roster is read-only for students.",
+            state: "complete",
+            actionLabel: "View team",
+            onAction: () => handleOpenTeamWorkspace(primaryTeam),
+        });
+    } else if (primaryTeam?.project && primaryProjectStatus === "approved_recruiting") {
+        nextSteps.push({
+            id: "team-formation",
+            title: primaryTeam.is_leader ? "Continue team formation" : "Review your team workspace",
+            detail: primaryTeam.is_leader
+                ? "Review join requests, invitations, support, and finalization readiness."
+                : "Check the official roster, project support, and current readiness blockers.",
+            state: "attention",
+            actionLabel: "Open team workspace",
+            onAction: () => handleOpenTeamWorkspace(primaryTeam),
+        });
+    } else if (primaryTeam && !primaryTeam.project && !primaryTeam.is_leader) {
+        nextSteps.push({
+            id: "team-proposal-wait",
+            title: "Team proposal not submitted yet",
+            detail: "Your team leader owns the proposal. You can review the roster while they prepare it.",
+            state: "waiting",
+            actionLabel: "View team",
+            onAction: () => handleOpenTeamWorkspace(primaryTeam),
+        });
+    } else if (!hasTeams && hasMarketplaceCards && pendingCommitments.length === 0) {
+        nextSteps.push({
+            id: "exploration",
+            title: "Continue project exploration",
+            detail: "Review the relationship state below and take the next available action when you are ready.",
+            state: "attention",
+            actionLabel: "View exploration",
+            onAction: () =>
+                document
+                    .getElementById("exploration-heading")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+        });
+    }
+
+    if (nextSteps.length === 0) {
+        nextSteps.push({
+            id: "discover",
+            title: "Find a capstone project",
+            detail: "Browse recruiting projects, save possibilities, or start a team proposal.",
+            state: "attention",
+            actionLabel: "Discover projects",
+            onAction: () => router.push("/discover"),
+        });
+    }
 
     return (
-        <div className="min-h-full bg-slate-50 px-2 py-4 sm:px-4">
-            {/* Header */}
-            <div className="mx-auto mb-4 flex w-full max-w-6xl flex-col gap-2">
-                <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">
-                    Student Dashboard
-                </h1>
-                <p className="text-sm text-slate-500">
-                    Track your team, invitations, and capstone review status.
-                </p>
-            </div>
+        <PageShell>
+            <PageHeader
+                eyebrow="Student workspace"
+                title="My capstone"
+                description="Start with the next decision that needs you. Supporting project, profile, and history details stay available when you need them."
+                actions={
+                    <Button type="button" variant="outline" onClick={() => router.push("/discover")}>
+                        <BookOpen aria-hidden="true" />
+                        Discover projects
+                    </Button>
+                }
+            />
 
-            {/* Content */}
-            <div className="relative">
-                {/* top fade */}
-                <div className="absolute top-0 left-0 w-full h-4 bg-gradient-to-b from-slate-50 to-transparent z-10 pointer-events-none" />
-
-                <div
-                    ref={scrollContainerRef}
-                    className="py-2 scrollbar-none"
-                >
-                    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
+            <div className="flex flex-col gap-5">
                         {teamActionError && (
-                            <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                            <Notice tone="danger" title="Action could not be completed">
                                 {teamActionError}
-                            </div>
+                            </Notice>
                         )}
                         {courseSetupMessage && (
-                            <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                                <div className="flex items-start gap-3">
-                                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                                    <p className="min-w-0 break-words">{courseSetupMessage}</p>
-                                </div>
-                            </div>
+                            <Notice tone="warning" title="Course setup needs attention">
+                                <p className="[overflow-wrap:anywhere]">{courseSetupMessage}</p>
+                            </Notice>
                         )}
-                        {false && (savedPastLoading || savedPastError || savedPastCapstones.length > 0) && (
-                            <section className="mb-2">
-                                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                    <div>
-                                        <h2 className="text-xl font-semibold text-slate-900">
-                                            Saved Inspiration
-                                        </h2>
-                                        <p className="text-sm text-slate-500">
-                                            Historical bookmarks are separate from project interest and team commitment.
-                                        </p>
-                                    </div>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => router.push("/past-capstones")}
-                                        className="w-full sm:w-auto"
-                                    >
-                                        Browse Past Capstones
-                                    </Button>
-                                </div>
-                                {savedPastError && (
-                                    <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                                        {savedPastError}
-                                    </div>
-                                )}
-                                {savedPastLoading ? (
-                                    <div className="flex items-center gap-2 text-sm text-slate-500">
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                        Loading saved capstones...
-                                    </div>
-                                ) : savedPastCapstones.length > 0 ? (
-                                    <div className="grid gap-3 md:grid-cols-2">
-                                        {savedPastCapstones.map((capstone) => (
-                                            <Card
-                                                key={`${capstone.source_type}-${capstone.source_id || capstone.id}`}
-                                                className="cursor-pointer gap-0 rounded-lg border border-slate-200 bg-white p-0 shadow-sm transition hover:border-slate-300 hover:shadow-md"
-                                                onClick={() => router.push("/past-capstones")}
-                                            >
-                                                <div className="flex flex-col gap-3 p-4">
-                                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                                        <CardTitle className="min-w-0 break-words text-base leading-snug text-slate-900">
-                                                            {capstone.title}
-                                                        </CardTitle>
-                                                        <span className="w-fit shrink-0 rounded border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
-                                                            {getSavedPastSourceLabel(capstone)}
-                                                        </span>
-                                                    </div>
-                                                    <p className="line-clamp-2 text-sm leading-6 text-slate-600">
-                                                        {capstone.description}
+                        <section className="order-0 space-y-3" aria-labelledby="next-steps-heading">
+                            <SectionHeader
+                                title={<span id="next-steps-heading">Next steps</span>}
+                                description="Work from top to bottom. Settled and waiting items stay quiet so the next decision is easy to find."
+                            />
+                            <ol className="space-y-2">
+                                {nextSteps.slice(0, 3).map((task, index) => {
+                                    const isComplete = task.state === "complete";
+                                    const isWaiting = task.state === "waiting";
+                                    return (
+                                        <li
+                                            key={task.id}
+                                            className={`flex min-w-0 flex-col gap-3 rounded-lg border px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${
+                                                isComplete
+                                                    ? "border-slate-200 bg-slate-50/70"
+                                                    : isWaiting
+                                                      ? "border-amber-200 bg-amber-50/60"
+                                                      : "border-slate-200 bg-white shadow-sm"
+                                            }`}
+                                        >
+                                            <div className="flex min-w-0 items-start gap-3">
+                                                <span
+                                                    className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                                                        isComplete
+                                                            ? "bg-slate-200 text-slate-600"
+                                                            : isWaiting
+                                                              ? "bg-amber-100 text-amber-800"
+                                                              : "bg-slate-900 text-white"
+                                                    }`}
+                                                    aria-hidden="true"
+                                                >
+                                                    {isComplete ? (
+                                                        <CheckCircle2 className="h-4 w-4" />
+                                                    ) : isWaiting ? (
+                                                        <Clock3 className="h-3.5 w-3.5" />
+                                                    ) : (
+                                                        index + 1
+                                                    )}
+                                                </span>
+                                                <div className="min-w-0">
+                                                    <p className={`text-sm font-semibold ${isComplete ? "text-slate-700" : "text-slate-950"}`}>
+                                                        {task.title}
                                                     </p>
-                                                    <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-                                                        <span className="rounded bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700">
-                                                            {capstone.completed_term || capstone.year}
-                                                        </span>
-                                                        {(capstone.department || []).slice(0, 2).map((department) => (
-                                                            <span
-                                                                key={department}
-                                                                className="max-w-full break-words rounded bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"
-                                                            >
-                                                                {department}
-                                                            </span>
-                                                        ))}
-                                                    </div>
+                                                    <p className="mt-0.5 text-xs leading-5 text-slate-600">
+                                                        {task.detail}
+                                                    </p>
                                                 </div>
-                                            </Card>
-                                        ))}
+                                            </div>
+                                            {task.onAction && task.actionLabel && (
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant={isComplete ? "outline" : "default"}
+                                                    onClick={task.onAction}
+                                                    className="w-full shrink-0 sm:w-auto"
+                                                >
+                                                    {task.actionLabel}
+                                                </Button>
+                                            )}
+                                        </li>
+                                    );
+                                })}
+                            </ol>
+                        </section>
+                        {(savedPastLoading || savedPastError || savedPastCapstones.length > 0) && (
+                            <Disclosure
+                                className="order-50"
+                                summary={
+                                    <span className="inline-flex items-center gap-2">
+                                        <BookOpen className="h-4 w-4 text-slate-500" aria-hidden="true" />
+                                        Saved inspiration
+                                        {savedPastCapstones.length > 0 && (
+                                            <span className="wm-count tabular-nums">{savedPastCapstones.length}</span>
+                                        )}
+                                    </span>
+                                }
+                            >
+                                <div className="space-y-3">
+                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                        <p className="text-xs leading-5 text-slate-500">
+                                            Private historical bookmarks only. They never create project interest or team commitment.
+                                        </p>
+                                        <Button variant="outline" size="sm" onClick={() => router.push("/past-capstones")}>
+                                            Browse archive
+                                        </Button>
                                     </div>
-                                ) : null}
-                            </section>
+                                    {savedPastError && <Notice tone="danger">{savedPastError}</Notice>}
+                                    {savedPastLoading ? (
+                                        <p className="inline-flex items-center gap-2 text-sm text-slate-500">
+                                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                                            Loading saved inspiration…
+                                        </p>
+                                    ) : (
+                                        <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+                                            {savedPastCapstones.map((capstone) => (
+                                                <li key={`${capstone.source_type}-${capstone.source_id || capstone.id}`} className="flex min-w-0 flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                                                    <div className="min-w-0">
+                                                        <p className="truncate text-sm font-medium text-slate-800">{capstone.title}</p>
+                                                        <p className="mt-0.5 text-xs text-slate-500">
+                                                            {getSavedPastSourceLabel(capstone)} · {capstone.completed_term || capstone.year}
+                                                        </p>
+                                                    </div>
+                                                    <Button variant="ghost" size="sm" onClick={() => router.push("/past-capstones")}>
+                                                        View
+                                                    </Button>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </div>
+                            </Disclosure>
                         )}
                         {/* CASE 1 & 3: USER HAS TEAM(S) */}
-                        {hasTeams &&
-                            teams.map((teamData, index) => (
-                                <Card
-                                    key={teamData.team_id}
-                                    className="w-full cursor-pointer border border-slate-200 bg-white shadow-sm transition hover:border-slate-300 hover:shadow-md"
-                                    onClick={() => setSelectedTeam(teamData)}
-                                >
-                                    <div className="flex flex-col gap-4 p-4 sm:p-6">
-                                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                            <CardTitle className="min-w-0 text-lg leading-snug text-slate-900 sm:text-xl">
-                                                {teamData.project
-                                                    ? teamData.project.title
-                                                    : `Team ${index + 1}`}
-                                            </CardTitle>
-                                            {teamData.project && (
-                                                <span
-                                                    className={`shrink-0 rounded border px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClass(
-                                                        teamData.project.status
-                                                    )}`}
-                                                >
-                                                    {getStatusLabel(teamData.project.status)}
-                                                </span>
-                                            )}
-                                        </div>
-
-                                        <p className="text-sm leading-6 text-slate-600 line-clamp-4 sm:line-clamp-3">
-                                            {teamData.project
-                                                ? teamData.project.description
-                                                : "This team doesn't have a capstone project yet."}
-                                        </p>
-
-                                        <div className="flex flex-col gap-3 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <span className="rounded bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-                                                    {
-                                                        teamData.team_members
-                                                            .length
-                                                    }{" "}
-                                                    member
-                                                    {teamData.team_members
-                                                        .length !== 1
-                                                        ? "s"
-                                                        : ""}
-                                                </span>
-                                                {teamData.is_leader && (
-                                                    <span className="rounded bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">
-                                                        Leader
-                                                    </span>
-                                                )}
-                                                {teamData.is_leader &&
-                                                    teamData.interested_students
-                                                        .length > 0 && (
-                                                        <span className="rounded bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">
-                                                                {
-                                                                    teamData
-                                                                        .interested_students
-                                                                        .length
-                                                                }{" "}
-                                                                pending
+                        {hasTeams && (
+                            <section className="order-20 space-y-3" aria-labelledby="current-project-heading">
+                                <SectionHeader
+                                    title={<span id="current-project-heading">Current project</span>}
+                                    description="Your official team, review status, support, and next team decision."
+                                />
+                                <div className="space-y-3">
+                                    {teams.map((teamData, index) => {
+                                        const candidateCount = teamData.is_leader
+                                            ? teamData.interested_students.length
+                                            : 0;
+                                        const primaryLabel =
+                                            teamData.is_leader && !teamData.project
+                                                ? "Start proposal"
+                                                : candidateCount > 0
+                                                  ? `Review ${candidateCount} candidate${candidateCount === 1 ? "" : "s"}`
+                                                  : "Open team workspace";
+                                        return (
+                                            <CapstoneCard
+                                                key={teamData.team_id}
+                                                project={
+                                                    teamData.project || {
+                                                        capstone_id: `team-${teamData.team_id}`,
+                                                        title: `Team ${index + 1}`,
+                                                        description: "Your team is ready for a capstone proposal.",
+                                                        status: teamData.status,
+                                                    }
+                                                }
+                                                onClick={() => handleOpenTeamWorkspace(teamData)}
+                                                canExpressInterest={false}
+                                                actions={
+                                                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                                                        <span className="text-xs text-slate-500">
+                                                            {teamData.team_members.length} official member{teamData.team_members.length === 1 ? "" : "s"}
+                                                            {teamData.is_leader ? " · You lead this team" : ""}
                                                         </span>
-                                                    )}
-                                            </div>
-                                            <span className="text-xs font-medium text-slate-500">
-                                                Open details
-                                            </span>
-                                        </div>
-                                    </div>
-                                </Card>
-                            ))}
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            onClick={() => {
+                                                                if (teamData.is_leader && !teamData.project) {
+                                                                    router.push("/project-form");
+                                                                    return;
+                                                                }
+                                                                handleOpenTeamWorkspace(teamData);
+                                                            }}
+                                                        >
+                                                            {primaryLabel}
+                                                        </Button>
+                                                    </div>
+                                                }
+                                            />
+                                        );
+                                    })}
+                                </div>
+                            </section>
+                        )}
 
                         {/* CASE 2: USER HAS MARKETPLACE EXPLORATIONS */}
                         {!hasTeams && (hasMarketplaceCards || pendingCommitments.length > 0 || resolvedMarketplaceCards.length > 0) && (
-                            <>
-                                <div className="mt-6 mb-3">
-                                    <h2 className="text-xl font-semibold text-slate-900">
-                                        Marketplace Exploration
-                                    </h2>
-                                    <p className="text-sm text-slate-500 mt-1">
-                                        Explore multiple projects, then commit to one when you and the team are ready. Current phase: {marketplacePhase}.
-                                    </p>
-                                </div>
+                            <section className="order-30 space-y-3" aria-labelledby="exploration-heading">
+                                <SectionHeader
+                                    title={<span id="exploration-heading">Project exploration</span>}
+                                    description={`Explore more than one project until you and a team are ready to commit. Marketplace phase: ${marketplacePhase}.`}
+                                />
 
-                                {pendingCommitments.map((request) => (
-                                    <Card
-                                        key={`commitment-${request.commitment_request_id}`}
-                                        className="w-full border border-amber-200 bg-white shadow-sm"
-                                    >
-                                        <div className="flex flex-col gap-4 p-4 sm:p-6">
-                                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                                <CardTitle className="min-w-0 text-lg leading-snug text-slate-900 sm:text-xl">
-                                                    Commitment request pending
-                                                </CardTitle>
-                                                <span className="shrink-0 rounded border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
-                                                    Awaiting Staff Routing
+                                {pendingCommitments.map((request) => {
+                                    const relatedExploration = explorations.find(
+                                        (exploration) =>
+                                            Number(exploration.capstone_fk) === Number(request.capstone_fk)
+                                    );
+                                    return (
+                                        <Card key={`commitment-${request.commitment_request_id}`} className="gap-0 border-amber-200 p-0">
+                                            <div className="flex min-w-0 flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between sm:p-5">
+                                                <div className="min-w-0">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <h3 className="font-semibold text-slate-950 [overflow-wrap:anywhere]">
+                                                            {relatedExploration?.capstone?.title || "Commitment request"}
+                                                        </h3>
+                                                        <StatusBadge tone="warning">Staff routing</StatusBadge>
+                                                    </div>
+                                                    <p className="mt-1 text-sm leading-6 text-slate-600">
+                                                        Both sides confirmed. Staff is selecting the coordinating and enrollment course routes before membership becomes official.
+                                                    </p>
+                                                </div>
+                                                <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-amber-800">
+                                                    <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
+                                                    No action needed
                                                 </span>
                                             </div>
-                                            <p className="text-sm leading-6 text-slate-600 line-clamp-4 sm:line-clamp-3">
-                                                Staff will route this commitment to an active staffed capstone course.
-                                            </p>
                                             {request.comments && (
-                                                <p className="rounded border border-slate-100 bg-slate-50 px-3 py-2 text-xs italic text-slate-500 line-clamp-2">
-                                                    Note: {request.comments}
-                                                </p>
+                                                <Disclosure
+                                                    summary="Routing note"
+                                                    className="rounded-none border-x-0 border-b-0 shadow-none"
+                                                >
+                                                    <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{request.comments}</p>
+                                                </Disclosure>
                                             )}
-                                        </div>
-                                    </Card>
-                                ))}
+                                        </Card>
+                                    );
+                                })}
 
                                 {marketplaceCards.map((exploration) => {
                                     const status = (exploration.status || "").toLowerCase();
@@ -1464,114 +1638,165 @@ export function StudentDashboard() {
                                     const commitDisabled =
                                         !explorationCanCommit ||
                                         pendingCommitments.length > 0 ||
-                                        (studentConfirmed && !teamConfirmed) ||
+                                        studentConfirmed ||
                                         actionLoading ===
                                             `commit-exploration-${exploration.exploration_id}`;
                                     const commitmentDescription =
                                         status === "pending_commitment"
-                                            ? "Both sides confirmed. Staff course routing is pending."
+                                            ? "Staff is confirming the coordinating and enrollment course routes."
                                             : status === "committed"
-                                            ? "Your commitment has been approved."
-                                            : status === "exploring" && studentConfirmed && !teamConfirmed
-                                            ? "You confirmed commitment. Waiting for the team."
+                                            ? "Your official project membership is confirmed."
+                                            : status === "exploring" && studentConfirmed && teamConfirmed
+                                            ? "The team leader sends the confirmed roster for routing."
+                                        : status === "exploring" && studentConfirmed && !teamConfirmed
+                                            ? "The team decides whether to confirm commitment."
                                             : status === "exploring" && teamConfirmed && !studentConfirmed
-                                            ? "The team confirmed commitment. Confirm when you are ready."
+                                            ? "Confirm commitment when you are ready."
                                             : status === "exploring"
-                                            ? "You and the team are exploring fit."
+                                            ? "Keep exploring fit, or confirm commitment when ready."
                                             : status === "invited"
-                                            ? "This team invited you to explore."
-                                            : "No final commitment yet.";
+                                            ? "Accept the invitation to begin exploring fit."
+                                            : status === "interested"
+                                            ? "The team leader reviews your request."
+                                            : status === "shortlisted"
+                                            ? "Open the project when you are ready to express interest."
+                                            : "No action is required right now.";
                                     const commitmentButtonLabel = explorationIsFinalization
                                         ? "Finalization"
                                         : pendingCommitments.length > 0
-                                        ? "Staff Routing Pending"
+                                        ? "Staff routing pending"
+                                        : studentConfirmed && teamConfirmed
+                                        ? "Commitment confirmed"
                                         : studentConfirmed && !teamConfirmed
-                                        ? "Waiting for Team"
-                                        : "Confirm Commitment";
+                                        ? "Waiting for team"
+                                        : "Confirm commitment";
+                                    const showCommitAction =
+                                        canShowCommit &&
+                                        explorationCanCommit &&
+                                        !studentConfirmed &&
+                                        pendingCommitments.length === 0;
                                     return (
-                                    <Card
-                                        key={`${exploration.capstone_fk}-${exploration.status}`}
-                                        className="w-full border border-slate-200 bg-white shadow-sm transition hover:border-slate-300 hover:shadow-md"
-                                    >
-                                        <div className="flex flex-col gap-4 p-4 sm:p-6">
-                                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                                <CardTitle className="min-w-0 text-lg leading-snug text-slate-900 sm:text-xl">
-                                                    {title}
-                                                </CardTitle>
-                                                <span className={`shrink-0 rounded border px-2.5 py-1 text-xs font-semibold ${getExplorationStatusClass(status)}`}>
-                                                    {getExplorationStatusLabel(status)}
+                                        <Card key={`${exploration.capstone_fk}-${exploration.status}`} className="gap-0 p-0">
+                                            <div className="grid min-w-0 gap-2 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                                                <div className="min-w-0">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <h3 className="font-semibold text-slate-950 [overflow-wrap:anywhere]">{title}</h3>
+                                                        <StatusBadge tone={projectStatusTone(status)}>
+                                                            {getExplorationStatusLabel(status)}
+                                                        </StatusBadge>
+                                                    </div>
+                                                    <p className="mt-1 text-xs leading-5 text-slate-600">
+                                                        <span className="font-medium text-slate-700">Next:</span>{" "}
+                                                        {commitmentDescription}
+                                                    </p>
+                                                </div>
+                                                <span className="text-xs font-medium text-slate-500">
+                                                    {marketplacePhaseLabel(explorationPhase)} phase
                                                 </span>
                                             </div>
-
-                                            <p className="text-sm leading-6 text-slate-600 line-clamp-4 sm:line-clamp-3">
-                                                {description}
-                                            </p>
-                                            {exploration.message && (
-                                                <p className="rounded border border-slate-100 bg-slate-50 px-3 py-2 text-xs italic text-slate-500 line-clamp-2">
-                                                    Your note: {exploration.message}
-                                                </p>
-                                            )}
-                                            <div className="flex flex-col gap-3 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
-                                                <CardDescription className="text-xs">
-                                                    {commitmentDescription}
-                                                </CardDescription>
-                                                <div className="flex flex-col gap-2 sm:flex-row">
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            withdrawInterest(String(capstoneId));
-                                                        }}
-                                                        disabled={
-                                                            status === "committed" ||
-                                                            actionLoading ===
-                                                            `withdraw-${capstoneId}`
-                                                        }
-                                                        className="h-8 w-full text-xs sm:w-auto"
-                                                    >
-                                                        {actionLoading ===
-                                                        `withdraw-${capstoneId}` ? (
-                                                            <Loader2 className="w-3 h-3 animate-spin" />
-                                                        ) : (
-                                                            "Withdraw"
+                                            <Disclosure
+                                                summary={
+                                                    showCommitAction
+                                                        ? "Project details and next action"
+                                                        : "Project details and request options"
+                                                }
+                                                className="rounded-none border-x-0 border-b-0 shadow-none"
+                                                summaryClassName="py-2.5"
+                                                contentClassName="px-4 py-3"
+                                            >
+                                                <div className="space-y-3">
+                                                    <p className="whitespace-pre-wrap leading-6 [overflow-wrap:anywhere]">{description}</p>
+                                                    <dl className="grid gap-3 text-xs sm:grid-cols-2">
+                                                        <div>
+                                                            <dt className="font-medium text-slate-500">Marketplace phase</dt>
+                                                            <dd className="mt-0.5 text-slate-700">{marketplacePhaseLabel(explorationPhase)}</dd>
+                                                        </div>
+                                                        {exploration.message && (
+                                                            <div>
+                                                                <dt className="font-medium text-slate-500">Your note</dt>
+                                                                <dd className="mt-0.5 whitespace-pre-wrap text-slate-700 [overflow-wrap:anywhere]">{exploration.message}</dd>
+                                                            </div>
                                                         )}
-                                                    </Button>
-                                                    {canShowCommit && (
-                                                        <Button
-                                                            size="sm"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                createProjectCommitment(
-                                                                    Number(exploration.exploration_id),
-                                                                    "Student requested final project commitment."
+                                                    </dl>
+                                                    <div className="flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                                                        {showCommitAction ? (
+                                                            <Button
+                                                                type="button"
+                                                                size="sm"
+                                                                onClick={() =>
+                                                                    createProjectCommitment(
+                                                                        Number(exploration.exploration_id),
+                                                                        "Student requested final project commitment."
+                                                                    )
+                                                                }
+                                                                disabled={commitDisabled}
+                                                            >
+                                                                {actionLoading === `commit-exploration-${exploration.exploration_id}` ? (
+                                                                    <Loader2 className="animate-spin" aria-hidden="true" />
+                                                                ) : null}
+                                                                {commitmentButtonLabel}
+                                                            </Button>
+                                                        ) : (
+                                                            <span className="text-xs text-slate-500">
+                                                                Your request can be changed until commitment is finalized.
+                                                            </span>
+                                                        )}
+                                                        <ConfirmActionDialog
+                                                            title="Withdraw project request?"
+                                                            description={
+                                                                <>
+                                                                    This removes your request from{" "}
+                                                                    <span className="font-medium text-slate-800">
+                                                                        {title}
+                                                                    </span>
+                                                                    {" "}and ends your active marketplace relationship with this project. You can send a new request later if the project is still recruiting.
+                                                                </>
+                                                            }
+                                                            confirmLabel="Withdraw request"
+                                                            tone="destructive"
+                                                            onConfirm={async () => {
+                                                                await withdrawInterest(
+                                                                    String(capstoneId)
                                                                 );
                                                             }}
-                                                            disabled={
-                                                                commitDisabled
+                                                            trigger={
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="link"
+                                                                    size="sm"
+                                                                    disabled={
+                                                                        status === "committed" ||
+                                                                        actionLoading === `withdraw-${capstoneId}`
+                                                                    }
+                                                                    className="justify-start text-slate-500 hover:text-red-700 sm:justify-center"
+                                                                    aria-busy={
+                                                                        actionLoading === `withdraw-${capstoneId}`
+                                                                    }
+                                                                >
+                                                                    {actionLoading === `withdraw-${capstoneId}` && (
+                                                                        <Loader2 className="animate-spin" aria-hidden="true" />
+                                                                    )}
+                                                                    Withdraw request
+                                                                </Button>
                                                             }
-                                                            className="h-8 w-full text-xs sm:w-auto"
-                                                        >
-                                                            {actionLoading ===
-                                                            `commit-exploration-${exploration.exploration_id}` ? (
-                                                                <Loader2 className="w-3 h-3 animate-spin" />
-                                                            ) : (
-                                                                commitmentButtonLabel
-                                                            )}
-                                                        </Button>
-                                                    )}
+                                                        />
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        </div>
-                                    </Card>
+                                            </Disclosure>
+                                        </Card>
                                     );
                                 })}
                                 {resolvedMarketplaceCards.length > 0 && (
-                                    <details className="rounded-md border border-slate-200 bg-white px-4 py-3 text-sm">
-                                        <summary className="cursor-pointer font-medium text-slate-700">
-                                            Show resolved marketplace history ({resolvedMarketplaceCards.length})
-                                        </summary>
-                                        <div className="mt-3 space-y-2">
+                                    <Disclosure
+                                        summary={
+                                            <span className="inline-flex items-center gap-2">
+                                                <History className="h-4 w-4 text-slate-500" aria-hidden="true" />
+                                                Resolved history
+                                                <span className="wm-count tabular-nums">{resolvedMarketplaceCards.length}</span>
+                                            </span>
+                                        }
+                                    >
+                                        <div className="space-y-2">
                                             {resolvedMarketplaceCards.map((exploration) => {
                                                 const status = (exploration.status || "").toLowerCase();
                                                 const capstoneId =
@@ -1593,29 +1818,31 @@ export function StudentDashboard() {
                                                                 </p>
                                                             )}
                                                         </div>
-                                                        <span className={`w-fit rounded border px-2 py-0.5 text-xs font-medium ${getExplorationStatusClass(status)}`}>
+                                                        <StatusBadge tone={projectStatusTone(status)}>
                                                             {getExplorationStatusLabel(status)}
-                                                        </span>
+                                                        </StatusBadge>
                                                     </div>
                                                 );
                                             })}
                                         </div>
-                                    </details>
+                                    </Disclosure>
                                 )}
-                            </>
+                            </section>
                         )}
 
                         {/* TEAM INVITES SECTION */}
                         {hasInvites && (
-                            <>
-                                <div className="mt-6 mb-3">
-                                    <h2 className="text-xl font-semibold text-slate-900">
-                                        Team Invitations
-                                    </h2>
-                                    <p className="text-sm text-slate-500 mt-1">
-                                        You've been invited to join these teams
-                                    </p>
-                                </div>
+                            <section className="order-10 space-y-3" aria-labelledby="invitations-heading">
+                                <SectionHeader
+                                    title={
+                                        <span id="invitations-heading" className="inline-flex items-center gap-2">
+                                            <Mail className="h-4 w-4 text-blue-600" aria-hidden="true" />
+                                            Team invitations
+                                            <span className="wm-count tabular-nums">{invites.length}</span>
+                                        </span>
+                                    }
+                                    description="Accepting starts marketplace exploration; it does not make you an official member."
+                                />
                                 {invites.filter(Boolean).map((invite) => {
                                     const capstone = invite?.capstone ?? null;
                                     const capstoneStatus = (capstone?.status || "").toLowerCase();
@@ -1644,71 +1871,27 @@ export function StudentDashboard() {
                                         actionLoading ===
                                             `decline-${invite.invite_id}`;
                                     return (
-                                    <Card
-                                        key={invite.invite_id}
-                                        className="w-full border border-blue-200 bg-white shadow-sm transition hover:border-blue-300 hover:shadow-md"
-                                    >
-                                        <div className="flex flex-col gap-4 p-4 sm:p-6">
-                                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                                <CardTitle className="min-w-0 text-lg leading-snug text-slate-900 sm:text-xl">
-                                                    {capstone?.title
-                                                        ? capstone.title
-                                                        : `Team ${invite.team_fk} (No capstone yet)`}
-                                                </CardTitle>
-                                                {capstone?.status ? (
-                                                    <span
-                                                        className={`shrink-0 rounded border px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClass(
-                                                            capstone.status
-                                                        )}`}
-                                                    >
-                                                        {getStatusLabel(capstone.status)}
-                                                    </span>
-                                                ) : (
-                                                    <span className="shrink-0 rounded bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                                                        Team Forming
-                                                    </span>
-                                                )}
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <p className="text-sm leading-6 text-slate-600 line-clamp-4 sm:line-clamp-3">
-                                                    {capstone?.description ||
-                                                        "This team has not submitted a capstone yet."}
-                                                </p>
-                                                {acceptanceBlockedReason && (
-                                                    <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                                                        {acceptanceBlockedReason} You can decline now or accept later.
+                                        <Card key={invite.invite_id} className="gap-0 border-blue-200 p-0">
+                                            <div className="flex min-w-0 flex-col gap-4 p-4 sm:flex-row sm:items-start sm:justify-between sm:p-5">
+                                                <div className="min-w-0">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <h3 className="font-semibold text-slate-950 [overflow-wrap:anywhere]">
+                                                            {capstone?.title || `Team ${invite.team_fk}`}
+                                                        </h3>
+                                                        <StatusBadge tone={projectStatusTone(capstone?.status || "invited")}>
+                                                            {capstone?.status ? getStatusLabel(capstone.status) : "Team forming"}
+                                                        </StatusBadge>
+                                                    </div>
+                                                    <p className="mt-1 text-sm leading-6 text-slate-600">
+                                                        {acceptanceBlockedReason
+                                                            ? `${acceptanceBlockedReason} You can decline now or accept later.`
+                                                            : "This team invited you to begin exploring fit. Official membership comes only after mutual commitment and routing."}
                                                     </p>
-                                                )}
-                                            </div>
-
-                                            <div className="flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:justify-end">
+                                                </div>
                                                 <Button
-                                                    variant="outline"
+                                                    type="button"
                                                     size="sm"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        declineInvite(
-                                                            invite.invite_id
-                                                        );
-                                                    }}
-                                                    disabled={
-                                                        inviteBusy
-                                                    }
-                                                    className="h-8 w-full text-xs sm:w-auto"
-                                                >
-                                                    {actionLoading ===
-                                                    `decline-${invite.invite_id}` ? (
-                                                        <Loader2 className="w-3 h-3 animate-spin" />
-                                                    ) : (
-                                                        "Decline"
-                                                    )}
-                                                </Button>
-                                                <Button
-                                                    variant="default"
-                                                    size="sm"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
+                                                    onClick={() => {
                                                         if (acceptanceBlockedReason) {
                                                             return;
                                                         }
@@ -1722,89 +1905,154 @@ export function StudentDashboard() {
                                                         inviteBusy ||
                                                         !!acceptanceBlockedReason
                                                     }
-                                                    className="h-8 w-full text-xs sm:w-auto"
+                                                    className="w-full sm:w-auto"
                                                 >
                                                     {actionLoading ===
                                                     `accept-invite-${invite.invite_id}` ? (
-                                                        <Loader2 className="w-3 h-3 animate-spin" />
-                                                    ) : (
-                                                        "Accept"
-                                                    )}
+                                                        <Loader2 className="animate-spin" aria-hidden="true" />
+                                                    ) : null}
+                                                    Accept invitation
                                                 </Button>
                                             </div>
-                                        </div>
-                                    </Card>
+                                            <Disclosure
+                                                summary="Project context and invitation options"
+                                                className="rounded-none border-x-0 border-b-0 shadow-none"
+                                            >
+                                                <div className="space-y-3">
+                                                    <p className="whitespace-pre-wrap leading-6 [overflow-wrap:anywhere]">
+                                                        {capstone?.description || "This team has not submitted a capstone yet."}
+                                                    </p>
+                                                    <p className="text-xs text-slate-500">Marketplace phase: <span className="capitalize">{inviteProjectPhase}</span></p>
+                                                    <ConfirmActionDialog
+                                                        title="Decline team invitation?"
+                                                        description={
+                                                            <>
+                                                                This removes the invitation from{" "}
+                                                                <span className="font-medium text-slate-800">
+                                                                    {capstone?.title || `Team ${invite.team_fk}`}
+                                                                </span>
+                                                                . The team can invite you again later.
+                                                            </>
+                                                        }
+                                                        confirmLabel="Decline invitation"
+                                                        tone="destructive"
+                                                        onConfirm={async () => {
+                                                            await declineInvite(invite.invite_id);
+                                                        }}
+                                                        trigger={
+                                                            <Button
+                                                                type="button"
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                disabled={inviteBusy}
+                                                                className="text-red-700 hover:bg-red-50 hover:text-red-800"
+                                                                aria-busy={
+                                                                    actionLoading === `decline-${invite.invite_id}`
+                                                                }
+                                                            >
+                                                                {actionLoading === `decline-${invite.invite_id}` && (
+                                                                    <Loader2 className="animate-spin" aria-hidden="true" />
+                                                                )}
+                                                                Decline invitation
+                                                            </Button>
+                                                        }
+                                                    />
+                                                </div>
+                                            </Disclosure>
+                                        </Card>
                                     );
                                 })}
-                            </>
+                            </section>
                         )}
 
                         {/* CASE 4: NO TEAM AND NO INTERESTS AND NO INVITES */}
                         {!hasTeams && !hasPendingInterests && !hasMarketplaceCards && !hasInvites && pendingCommitments.length === 0 && (
-                            <Card className="w-full border border-slate-200 bg-white p-6 text-center shadow-sm sm:p-12">
-                                <p className="mb-2 text-base text-slate-600 sm:text-lg">
-                                    You haven't joined any team or expressed
-                                    interest in any projects yet.
-                                </p>
-                                <p className="text-slate-400">
-                                    {!userHasCourse
-                                        ? "Browse available projects and express interest. An advisor can assign your course if a team accepts you."
-                                        : userCourseInactive
-                                        ? "Browse available projects and submit a course request before creating a course-owned team."
-                                        : "Browse available projects and express your interest to join a team!"}
-                                </p>
-                                <div className="mt-4 flex justify-center">
-                                    <Button
-                                        onClick={async () => {
-                                            if (!canUseCourseFlows) {
-                                                return;
+                            <section className="order-40 space-y-3">
+                                <EmptyState
+                                    icon={FolderOpen}
+                                    title="Find your capstone path"
+                                    description={
+                                        !userHasCourse
+                                            ? "You can browse and explore now. Staff will confirm a staffed course route before official membership."
+                                            : userCourseInactive
+                                              ? "You can keep exploring while staff resolves your inactive course assignment."
+                                              : "Browse recruiting projects, save possibilities, and contact a team when one feels promising."
+                                    }
+                                    action={
+                                        <Button type="button" onClick={() => router.push("/discover")}>
+                                            Discover projects
+                                        </Button>
+                                    }
+                                />
+                                <Disclosure summary="Want to lead your own proposal?">
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                        <p className="max-w-2xl text-sm leading-6 text-slate-600">
+                                            Create a team workspace first, then build one capstone proposal for that team. An active staffed course assignment is required.
+                                        </p>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            onClick={async () => {
+                                                if (!canUseCourseFlows) return;
+                                                const result = await createEmptyTeam();
+                                                if (!result?.success) {
+                                                    console.error("Failed to create empty team");
+                                                }
+                                            }}
+                                            disabled={actionLoading === "create-team" || !canUseCourseFlows}
+                                            title={
+                                                canUseCourseFlows
+                                                    ? undefined
+                                                    : userHasCourse
+                                                      ? "Active course assignment required"
+                                                      : "Course assignment required"
                                             }
-                                            const result =
-                                                await createEmptyTeam();
-                                            if (!result?.success) {
-                                                console.error(
-                                                    "Failed to create empty team"
-                                                );
-                                            }
-                                        }}
-                                        disabled={
-                                            actionLoading === "create-team" ||
-                                            !canUseCourseFlows
-                                        }
-                                        title={
-                                            canUseCourseFlows
-                                                ? undefined
-                                                : userHasCourse
-                                                ? "Active course assignment required"
-                                                : "Course assignment required"
-                                        }
-                                        className="w-full sm:w-auto"
-                                    >
-                                        {actionLoading === "create-team"
-                                            ? "Creating Team..."
-                                            : "Create Team Without Capstone"}
-                                    </Button>
-                                </div>
-                            </Card>
+                                            className="w-full sm:w-auto"
+                                        >
+                                            {actionLoading === "create-team" ? (
+                                                <Loader2 className="animate-spin" aria-hidden="true" />
+                                            ) : (
+                                                <Users aria-hidden="true" />
+                                            )}
+                                            Create team workspace
+                                        </Button>
+                                    </div>
+                                </Disclosure>
+                            </section>
                         )}
-                    </div>
-                </div>
-
-                {/* bottom fade */}
-                <div className="absolute bottom-0 left-0 w-full h-4 bg-gradient-to-t from-slate-50 to-transparent z-10 pointer-events-none" />
             </div>
 
             {/* Modal for Team Details */}
             <Dialog
                 open={!!selectedTeam}
-                onOpenChange={(open) => !open && setSelectedTeam(null)}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setSelectedTeam(null);
+                        setTeamContext(null);
+                        setTeamContextError("");
+                        setTeamContextLoading(false);
+                    }
+                }}
             >
                 <DialogContent
+                    onOpenAutoFocus={() => {
+                        if (document.activeElement instanceof HTMLElement) {
+                            teamDialogOpenerRef.current = document.activeElement;
+                        }
+                    }}
+                    onCloseAutoFocus={(event) => {
+                        const opener = teamDialogOpenerRef.current;
+                        if (opener?.isConnected) {
+                            event.preventDefault();
+                            opener.focus();
+                        }
+                        teamDialogOpenerRef.current = null;
+                    }}
                     className="
                         fixed z-50
                         left-1/2 top-1/2
                         -translate-x-1/2 -translate-y-1/2
-                        w-full sm:max-w-5xl
+                        w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] sm:max-w-6xl
                         h-auto max-h-[90vh]
                         overflow-y-auto
                         p-0 gap-0
@@ -1820,16 +2068,19 @@ export function StudentDashboard() {
                     {selectedTeam && (
                         <div className="flex flex-col h-full">
                             {/* HEADER */}
-                            <div className="p-8 pr-12 border-b border-slate-100 bg-slate-50/50">
-                                <div className="flex items-start justify-between gap-4">
+                            <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-6 pr-12 sm:px-8 sm:py-8 sm:pr-12">
+                                <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                     <div className="min-w-0 flex-1">
                                         <div className="flex items-center gap-2 mb-2">
-                                            <DialogTitle className="break-words text-2xl font-bold leading-tight text-slate-900">
+                                            <DialogTitle className="break-words text-xl font-bold leading-tight text-slate-900 sm:text-2xl">
                                                 {selectedTeam.project
                                                     ? selectedTeam.project.title
                                                     : `Team ${selectedTeam.team_id}`}
                                             </DialogTitle>
                                         </div>
+                                        <DialogDescription className="sr-only">
+                                            Official team roster, finalization readiness, project support, and team management controls.
+                                        </DialogDescription>
                                         <div className="text-sm text-slate-500 font-medium">
                                             {selectedTeam.team_members.length}{" "}
                                             member
@@ -1842,7 +2093,7 @@ export function StudentDashboard() {
                                                     .length > 0 && (
                                                     <>
                                                         {" "}
-                                                        -{" "}
+                                                        ·{" "}
                                                         {
                                                             selectedTeam
                                                                 .interested_students
@@ -1866,34 +2117,27 @@ export function StudentDashboard() {
                             </div>
 
                             {/* BODY */}
-                            <div className="p-6">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                            <div className="p-4 sm:p-6">
+                                <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.12fr)_minmax(22rem,0.88fr)] xl:gap-8">
                                     {/* LEFT COLUMN: Description */}
-                                    <div className="md:col-span-2 space-y-6">
-                                        <div>
-                                            <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-3">
-                                                About the Project
-                                            </h3>
-                                            {selectedTeam.project ? (
-                                                <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">
-                                                    {
-                                                        selectedTeam.project
-                                                            .description
-                                                    }
+                                    <div className="space-y-6">
+                                        {selectedTeam.project ? (
+                                            <Disclosure summary="Project details">
+                                                <p className="whitespace-pre-wrap leading-6 text-slate-700 [overflow-wrap:anywhere]">
+                                                    {selectedTeam.project.description}
                                                 </p>
-                                            ) : (
-                                                <p className="text-yellow-700 bg-yellow-50 p-4 rounded-lg border border-yellow-200">
-                                                    This team doesn't have a
-                                                    capstone project yet.
-                                                </p>
-                                            )}
-                                        </div>
+                                            </Disclosure>
+                                        ) : (
+                                            <Notice tone="warning" title="Proposal not submitted">
+                                                This team does not have a capstone proposal yet.
+                                            </Notice>
+                                        )}
 
                                         {selectedTeam.project?.status?.toLowerCase() ===
                                             "changes_requested" && (
                                             <div className="space-y-3">
                                                 <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider">
-                                                    Instructor Feedback
+                                                    Instructor feedback
                                                 </h3>
                                                 {loadingApprovalHistory ? (
                                                     <p className="text-slate-600 text-sm">
@@ -1921,7 +2165,7 @@ export function StudentDashboard() {
                                             "rejected" && (
                                             <div className="space-y-3">
                                                 <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider">
-                                                    Rejection Reason
+                                                    Rejection reason
                                                 </h3>
                                                 {loadingApprovalHistory ? (
                                                     <p className="text-slate-600 text-sm">
@@ -1952,8 +2196,8 @@ export function StudentDashboard() {
                                                 <div className="space-y-3 border border-slate-200 rounded-lg p-4 bg-slate-50">
                                                     <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider">
                                                         {selectedTeam.project?.status?.toLowerCase() === "draft"
-                                                            ? "Draft Submission"
-                                                            : "Revise and Resubmit"}
+                                                            ? "Draft proposal"
+                                                            : "Revise and resubmit"}
                                                     </h3>
                                                     <p className="text-sm text-slate-600">
                                                         Open the full capstone form to revise your submission.
@@ -1973,8 +2217,8 @@ export function StudentDashboard() {
                                                         className="w-full sm:w-auto"
                                                     >
                                                         {selectedTeam.project?.status?.toLowerCase() === "draft"
-                                                            ? "Edit and Submit for Review"
-                                                            : "Open Revision Form"}
+                                                            ? "Edit and submit for review"
+                                                            : "Open revision form"}
                                                     </Button>
                                                 </div>
                                             )}
@@ -1991,7 +2235,7 @@ export function StudentDashboard() {
                                                     disabled={finalizeLoading}
                                                     className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700"
                                                 >
-                                                    Finalize Team
+                                                    Finalize team
                                                 </Button>
                                             )}
                                             {selectedTeamCanWithdrawReview && (
@@ -2005,9 +2249,9 @@ export function StudentDashboard() {
                                                     className="w-full sm:w-auto"
                                                 >
                                                     {withdrawReviewLoading ? (
-                                                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                                        <Loader2 className="h-4 w-4 animate-spin" />
                                                     ) : null}
-                                                    Reopen for Edits
+                                                    Reopen for edits
                                                 </Button>
                                             )}
                                             {selectedTeamCanInvite && (
@@ -2018,8 +2262,8 @@ export function StudentDashboard() {
                                                     }
                                                     className="w-full sm:w-auto"
                                                 >
-                                                    <UserPlus className="w-4 h-4 mr-2" />
-                                                    Invite Teammate
+                                                    <UserPlus className="h-4 w-4" />
+                                                    Invite teammate
                                                 </Button>
                                             )}
                                             {((selectedTeam.is_leader && !selectedTeamIsLocked) ||
@@ -2036,7 +2280,7 @@ export function StudentDashboard() {
                                                                 onClick={handleReassignLeadership}
                                                                 className="w-full sm:w-auto"
                                                             >
-                                                                Reassign Leader
+                                                                Reassign leader
                                                             </Button>
                                                         )}
                                                         {!selectedTeam.is_leader && !selectedTeamIsLocked && (
@@ -2055,9 +2299,9 @@ export function StudentDashboard() {
                                                             >
                                                                 {actionLoading ===
                                                                 "leave-team" ? (
-                                                                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                                                    <Loader2 className="h-4 w-4 animate-spin" />
                                                                 ) : null}
-                                                                Leave Team
+                                                                Leave team
                                                             </Button>
                                                         )}
                                                         {selectedTeamCanAbandonSoloProject && (
@@ -2071,9 +2315,9 @@ export function StudentDashboard() {
                                                                 className="w-full border-red-200 text-red-700 hover:bg-red-50 sm:w-auto"
                                                             >
                                                                 {actionLoading === "abandon-project" ? (
-                                                                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                                                    <Loader2 className="h-4 w-4 animate-spin" />
                                                                 ) : null}
-                                                                Abandon Project
+                                                                Abandon project
                                                             </Button>
                                                         )}
                                                     </div>
@@ -2102,139 +2346,129 @@ export function StudentDashboard() {
                                         {/* Team Members */}
                                         <div>
                                             <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-                                                Team Members
+                                                Team members
                                             </h3>
-                                            <ul className="space-y-2">
-                                                {(() => {
-                                                    let leaderUserId =
-                                                        selectedTeam.leader_fk;
-
-                                                    if (
-                                                        !leaderUserId &&
-                                                        selectedTeam.is_leader &&
-                                                        Number.isInteger(currentUserId)
-                                                    ) {
-                                                        leaderUserId = currentUserId;
+                                            {teamContextLoading ? (
+                                                <OfficialTeamRosterSkeleton
+                                                    count={Math.min(
+                                                        Math.max(selectedTeam.team_members.length, 1),
+                                                        4
+                                                    )}
+                                                />
+                                            ) : (
+                                                <OfficialTeamRoster
+                                                    members={
+                                                        teamContext?.members ||
+                                                        fallbackRosterMembers(
+                                                            selectedTeam,
+                                                            Number.isInteger(currentUserId)
+                                                                ? currentUserId
+                                                                : null
+                                                        )
                                                     }
-
-                                                    const sortedMembers = [
-                                                        ...selectedTeam.team_members,
-                                                    ].sort((a, b) => {
-                                                        const aIsLeader =
-                                                            parseInt(
-                                                                a.user_id
-                                                            ) === leaderUserId;
-                                                        const bIsLeader =
-                                                            parseInt(
-                                                                b.user_id
-                                                            ) === leaderUserId;
-                                                        if (aIsLeader) return -1;
-                                                        if (bIsLeader) return 1;
-                                                        return 0;
-                                                    });
-
-                                                    return sortedMembers.map(
-                                                        (member) => {
-                                                            const isCurrentUser =
-                                                                isCurrentUserId(
-                                                                    member.user_id
-                                                                );
-
-                                                            // Convert both to numbers for comparison to avoid type mismatch
-                                                            const memberIdNum =
-                                                                parseInt(
-                                                                    member.user_id
-                                                                );
-                                                            const leaderIdNum =
-                                                                leaderUserId
-                                                                    ? parseInt(
-                                                                          String(
-                                                                              leaderUserId
-                                                                          )
-                                                                      )
-                                                                    : null;
-                                                            const isLeaderMember =
-                                                                leaderIdNum !==
-                                                                    null &&
-                                                                memberIdNum ===
-                                                                    leaderIdNum;
-
-
-                                                            return (
-                                                                <li
-                                                                    key={
-                                                                        member.user_id
-                                                                    }
-                                                                    className="flex items-center justify-between text-sm text-slate-700 bg-slate-50 p-2 rounded border border-slate-100"
-                                                                >
-                                                                    <div className="flex items-center min-w-0 flex-1">
-                                                                        <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500 mr-2 flex-shrink-0">
-                                                                            {member.email
-                                                                                .charAt(
-                                                                                    0
-                                                                                )
-                                                                                .toUpperCase()}
-                                                                        </div>
-                                                                        <span className="break-all">
-                                                                            {
-                                                                                member.email
-                                                                            }
+                                                    onViewProfile={(member) =>
+                                                        handleViewStudentProfile(
+                                                            member.user_id,
+                                                            member.email,
+                                                            getStudentCourseLabel(member),
+                                                            getStudentDepartmentLabel(member),
+                                                            member.is_leader
+                                                        )
+                                                    }
+                                                    renderMemberAction={(member) =>
+                                                        selectedTeam.is_leader &&
+                                                        !selectedTeamIsLocked &&
+                                                        !isCurrentUserId(String(member.user_id)) ? (
+                                                            <ConfirmActionDialog
+                                                                title="Remove official team member?"
+                                                                description={
+                                                                    <>
+                                                                        This removes{" "}
+                                                                        <span className="font-medium text-slate-800">
+                                                                            {member.email}
                                                                         </span>
-                                                                    </div>
-                                                                    <p className="ml-2 hidden max-w-[18rem] break-all text-xs text-slate-500 md:block">
-                                                                        {getStudentCourseLabel(member)}
-                                                                    </p>
-                                                                    {isLeaderMember && (
-                                                                        <Crown className="w-4 h-4 text-yellow-500 ml-2 flex-shrink-0" />
-                                                                    )}
-                                                                    {selectedTeam.is_leader &&
-                                                                        !selectedTeamIsLocked &&
-                                                                        !isCurrentUser && (
-                                                                            <Button
-                                                                                variant="ghost"
-                                                                                size="sm"
-                                                                                onClick={() =>
-                                                                                    handleRemoveStudent(
-                                                                                        member.user_id,
-                                                                                        selectedTeam.team_id
-                                                                                    )
-                                                                                }
-                                                                                disabled={
-                                                                                    actionLoading ===
-                                                                                    `remove-${member.user_id}`
-                                                                                }
-                                                                                className="ml-2 h-7 text-xs flex-shrink-0"
-                                                                            >
-                                                                                {actionLoading ===
-                                                                                `remove-${member.user_id}` ? (
-                                                                                    <Loader2 className="w-3 h-3 animate-spin" />
-                                                                                ) : (
-                                                                                    "Remove"
-                                                                                )}
-                                                                            </Button>
-                                                                        )}
-                                                                </li>
-                                                            );
-                                                        }
-                                                    );
-                                                })()}
-                                            </ul>
+                                                                        {" "}from the official team roster. They will no longer be an official member of this project.
+                                                                    </>
+                                                                }
+                                                                confirmLabel="Remove member"
+                                                                tone="destructive"
+                                                                onConfirm={() =>
+                                                                    handleRemoveStudent(
+                                                                        String(member.user_id),
+                                                                        selectedTeam.team_id
+                                                                    )
+                                                                }
+                                                                trigger={
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        disabled={
+                                                                            actionLoading ===
+                                                                            `remove-${member.user_id}`
+                                                                        }
+                                                                        aria-busy={
+                                                                            actionLoading ===
+                                                                            `remove-${member.user_id}`
+                                                                        }
+                                                                        className="text-red-700 hover:bg-red-50 hover:text-red-800"
+                                                                    >
+                                                                        {actionLoading ===
+                                                                        `remove-${member.user_id}` ? (
+                                                                            <Loader2 className="h-3 w-3 animate-spin" />
+                                                                        ) : null}
+                                                                        Remove
+                                                                    </Button>
+                                                                }
+                                                            />
+                                                        ) : null
+                                                    }
+                                                />
+                                            )}
+                                            {teamContextError && !teamContext && (
+                                                <p className="mt-2 text-xs text-amber-700">
+                                                    Live roster details are unavailable; showing the last loaded team roster.
+                                                </p>
+                                            )}
                                         </div>
 
-                                        {selectedTeam.is_leader && selectedTeam.project && (
+                                        {selectedTeam.project && (
                                             <div>
-                                                <FinalizationReadinessChecklist
-                                                    items={finalizationReadinessItems}
-                                                />
+                                                {teamContextLoading ? (
+                                                    <TeamContextPanelSkeleton label="Finalization readiness" />
+                                                ) : teamContextError ? (
+                                                    <p className="text-sm text-rose-700">
+                                                        {teamContextError}
+                                                    </p>
+                                                ) : teamContext ? (
+                                                    <FinalizationReadiness
+                                                        readiness={teamContext.readiness}
+                                                    />
+                                                ) : null}
                                             </div>
                                         )}
 
-                                        {selectedTeam.is_leader && selectedTeam.project && (
+                                        {selectedTeam.project && (
                                             <div>
-                                                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-                                                    Project Support
+                                                <h3 className="mb-3 text-sm font-semibold text-slate-900">
+                                                    Project support
                                                 </h3>
-                                                <div className="space-y-3 rounded border border-slate-200 bg-slate-50 p-3">
+                                                {teamContextLoading ? (
+                                                    <TeamContextPanelSkeleton label="Project support" />
+                                                ) : teamContextError ? (
+                                                    <p className="text-sm text-rose-700">
+                                                        {teamContextError}
+                                                    </p>
+                                                ) : visibleSupportSummary ? (
+                                                    <ProjectSupportSummary
+                                                        support={visibleSupportSummary}
+                                                    />
+                                                ) : null}
+                                                {showMentorManagement && (
+                                                <Disclosure
+                                                    summary="Manage mentor support"
+                                                    className="mt-3 shadow-none"
+                                                >
+                                                <div className="space-y-3">
                                                     {mentorDataLoading ? (
                                                         <div className="flex items-center gap-2 text-sm text-slate-600">
                                                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -2247,32 +2481,10 @@ export function StudentDashboard() {
                                                                     {mentorDataError}
                                                                 </p>
                                                             )}
-                                                            {acceptedMentor ? (
-                                                                <div className="rounded border border-emerald-100 bg-emerald-50 p-2 text-sm text-emerald-800">
-                                                                    Mentor:{" "}
-                                                                    <span className="break-all font-medium">
-                                                                        {acceptedMentor.mentor_email ||
-                                                                            `Mentor #${acceptedMentor.mentor_fk}`}
-                                                                    </span>
-                                                                </div>
-                                                            ) : mentorSupportSummary?.external_partner_support_confirmed ? (
-                                                                <div className="rounded border border-emerald-100 bg-emerald-50 p-2 text-sm text-emerald-800">
-                                                                    External partner support confirmed.
-                                                                </div>
-                                                            ) : mentorSupportSummary?.requires_project_support === false ? (
-                                                                <div className="rounded border border-slate-200 bg-white p-2 text-sm text-slate-600">
-                                                                    This course does not require mentor or partner support before finalization.
-                                                                </div>
-                                                            ) : (
-                                                                <div className="rounded border border-amber-100 bg-amber-50 p-2 text-sm text-amber-800">
-                                                                    Finalization requires an accepted mentor or confirmed external partner.
-                                                                </div>
-                                                            )}
-
                                                             {pendingMentorRequests.length > 0 && (
                                                                 <div className="space-y-2">
                                                                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                                                        Pending Requests
+                                                                        Pending requests
                                                                     </p>
                                                                     {pendingMentorRequests.map((request) => (
                                                                         <div
@@ -2280,31 +2492,51 @@ export function StudentDashboard() {
                                                                             className="rounded border border-slate-200 bg-white p-2 text-sm"
                                                                         >
                                                                             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                                                                <span className="break-all text-slate-700">
+                                                                                <span className="min-w-0 flex-1 text-slate-700 [overflow-wrap:anywhere]">
                                                                                     {request.mentor?.email ||
                                                                                         `Mentor #${request.mentor_fk}`}
                                                                                 </span>
-                                                                                <Button
-                                                                                    variant="outline"
-                                                                                    size="sm"
-                                                                                    className="h-7 text-xs"
-                                                                                    onClick={() =>
+                                                                                <ConfirmActionDialog
+                                                                                    title="Cancel mentor request?"
+                                                                                    description={
+                                                                                        <>
+                                                                                            This withdraws the pending request to{" "}
+                                                                                            <span className="font-medium text-slate-800">
+                                                                                                {request.mentor?.email ||
+                                                                                                    `Mentor #${request.mentor_fk}`}
+                                                                                            </span>
+                                                                                            . They will no longer be able to accept it. You can send a new request later.
+                                                                                        </>
+                                                                                    }
+                                                                                    confirmLabel="Cancel request"
+                                                                                    tone="destructive"
+                                                                                    onConfirm={() =>
                                                                                         handleCancelMentorRequest(
                                                                                             request
                                                                                         )
                                                                                     }
-                                                                                    disabled={
-                                                                                        mentorActionLoading ===
-                                                                                        `cancel-mentor-${request.mentor_request_id}`
+                                                                                    trigger={
+                                                                                        <Button
+                                                                                            variant="outline"
+                                                                                            size="sm"
+                                                                                            className="h-7 shrink-0 text-xs"
+                                                                                            disabled={
+                                                                                                mentorActionLoading ===
+                                                                                                `cancel-mentor-${request.mentor_request_id}`
+                                                                                            }
+                                                                                            aria-busy={
+                                                                                                mentorActionLoading ===
+                                                                                                `cancel-mentor-${request.mentor_request_id}`
+                                                                                            }
+                                                                                        >
+                                                                                            {mentorActionLoading ===
+                                                                                            `cancel-mentor-${request.mentor_request_id}` ? (
+                                                                                                <Loader2 className="h-3 w-3 animate-spin" />
+                                                                                            ) : null}
+                                                                                            Cancel
+                                                                                        </Button>
                                                                                     }
-                                                                                >
-                                                                                    {mentorActionLoading ===
-                                                                                    `cancel-mentor-${request.mentor_request_id}` ? (
-                                                                                        <Loader2 className="h-3 w-3 animate-spin" />
-                                                                                    ) : (
-                                                                                        "Cancel"
-                                                                                    )}
-                                                                                </Button>
+                                                                                />
                                                                             </div>
                                                                         </div>
                                                                     ))}
@@ -2314,14 +2546,14 @@ export function StudentDashboard() {
                                                             {pendingMentorOffers.length > 0 && (
                                                                 <div className="space-y-2">
                                                                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                                                        Mentor Offers
+                                                                        Mentor offers
                                                                     </p>
                                                                     {pendingMentorOffers.map((request) => (
                                                                         <div
                                                                             key={request.mentor_request_id}
                                                                             className="rounded border border-blue-100 bg-blue-50 p-2 text-sm"
                                                                         >
-                                                                            <p className="break-all font-medium text-slate-800">
+                                                                            <p className="font-medium text-slate-800 [overflow-wrap:anywhere]">
                                                                                 {request.mentor?.email ||
                                                                                     `Mentor #${request.mentor_fk}`}
                                                                             </p>
@@ -2344,36 +2576,59 @@ export function StudentDashboard() {
                                                                                         mentorActionLoading ===
                                                                                         `accept-mentor-offer-${request.mentor_request_id}`
                                                                                     }
+                                                                                    aria-busy={
+                                                                                        mentorActionLoading ===
+                                                                                        `accept-mentor-offer-${request.mentor_request_id}`
+                                                                                    }
                                                                                 >
                                                                                     {mentorActionLoading ===
                                                                                     `accept-mentor-offer-${request.mentor_request_id}` ? (
                                                                                         <Loader2 className="h-3 w-3 animate-spin" />
-                                                                                    ) : (
-                                                                                        "Accept"
-                                                                                    )}
+                                                                                    ) : null}
+                                                                                    Accept
                                                                                 </Button>
-                                                                                <Button
-                                                                                    size="sm"
-                                                                                    variant="outline"
-                                                                                    className="h-7 flex-1 text-xs"
-                                                                                    onClick={() =>
+                                                                                <ConfirmActionDialog
+                                                                                    title="Decline mentor offer?"
+                                                                                    description={
+                                                                                        <>
+                                                                                            This declines the support offer from{" "}
+                                                                                            <span className="font-medium text-slate-800">
+                                                                                                {request.mentor?.email ||
+                                                                                                    `Mentor #${request.mentor_fk}`}
+                                                                                            </span>
+                                                                                            . Your team can request mentor support again later.
+                                                                                        </>
+                                                                                    }
+                                                                                    confirmLabel="Decline offer"
+                                                                                    tone="destructive"
+                                                                                    onConfirm={() =>
                                                                                         handleDecideMentorOffer(
                                                                                             request,
                                                                                             "decline"
                                                                                         )
                                                                                     }
-                                                                                    disabled={
-                                                                                        mentorActionLoading ===
-                                                                                        `decline-mentor-offer-${request.mentor_request_id}`
+                                                                                    trigger={
+                                                                                        <Button
+                                                                                            size="sm"
+                                                                                            variant="outline"
+                                                                                            className="h-7 flex-1 text-xs"
+                                                                                            disabled={
+                                                                                                mentorActionLoading ===
+                                                                                                `decline-mentor-offer-${request.mentor_request_id}`
+                                                                                            }
+                                                                                            aria-busy={
+                                                                                                mentorActionLoading ===
+                                                                                                `decline-mentor-offer-${request.mentor_request_id}`
+                                                                                            }
+                                                                                        >
+                                                                                            {mentorActionLoading ===
+                                                                                            `decline-mentor-offer-${request.mentor_request_id}` ? (
+                                                                                                <Loader2 className="h-3 w-3 animate-spin" />
+                                                                                            ) : null}
+                                                                                            Decline
+                                                                                        </Button>
                                                                                     }
-                                                                                >
-                                                                                    {mentorActionLoading ===
-                                                                                    `decline-mentor-offer-${request.mentor_request_id}` ? (
-                                                                                        <Loader2 className="h-3 w-3 animate-spin" />
-                                                                                    ) : (
-                                                                                        "Decline"
-                                                                                    )}
-                                                                                </Button>
+                                                                                />
                                                                             </div>
                                                                         </div>
                                                                     ))}
@@ -2431,15 +2686,17 @@ export function StudentDashboard() {
                                                                         }
                                                                     >
                                                                         {mentorActionLoading === "request-mentor" ? (
-                                                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                                            <Loader2 className="h-4 w-4 animate-spin" />
                                                                         ) : null}
-                                                                        Request Mentor
+                                                                        Request mentor
                                                                     </Button>
                                                                 </div>
                                                             )}
                                                         </>
                                                     )}
                                                 </div>
+                                                </Disclosure>
+                                                )}
                                             </div>
                                         )}
 
@@ -2450,7 +2707,7 @@ export function StudentDashboard() {
                                                 .length > 0 && (
                                                 <div>
                                                     <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-                                                        Interested Students
+                                                        Join requests
                                                     </h3>
                                                     <ul className="space-y-3">
                                                         {selectedTeam.interested_students.map(
@@ -2476,15 +2733,21 @@ export function StudentDashboard() {
                                                                     key={
                                                                         student.user_id
                                                                     }
-                                                                    className="bg-blue-50 p-3 rounded border border-blue-100 cursor-pointer hover:bg-blue-100 transition-colors"
-                                                                    onClick={() =>
-                                                                        handleViewStudentProfile(
-                                                                            student.user_id,
-                                                                            student.email
-                                                                        )
-                                                                    }
+                                                                    className="rounded border border-blue-100 bg-blue-50 p-3"
                                                                 >
-                                                                    <div className="flex items-start justify-between mb-2">
+                                                                    <button
+                                                                        type="button"
+                                                                        className="mb-2 flex w-full items-start justify-between rounded text-left outline-none hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-400"
+                                                                        aria-label={`View profile for ${student.email}`}
+                                                                        onClick={() =>
+                                                                            handleViewStudentProfile(
+                                                                                student.user_id,
+                                                                                student.email,
+                                                                                getStudentCourseLabel(student),
+                                                                                getStudentDepartmentLabel(student)
+                                                                            )
+                                                                        }
+                                                                    >
                                                                         <div className="flex items-center min-w-0 flex-1">
                                                                             <div className="w-6 h-6 rounded-full bg-blue-200 flex items-center justify-center text-[10px] font-bold text-blue-700 mr-2 flex-shrink-0">
                                                                                 {student.email
@@ -2493,13 +2756,13 @@ export function StudentDashboard() {
                                                                                     )
                                                                                     .toUpperCase()}
                                                                             </div>
-                                                                            <span className="text-sm text-slate-700 break-all">
+                                                                            <span className="text-sm text-slate-700 [overflow-wrap:anywhere]">
                                                                                 {
                                                                                     student.email
                                                                                 }
                                                                             </span>
                                                                         </div>
-                                                                    </div>
+                                                                    </button>
                                                                      <p className="text-xs text-slate-500 mb-2 ml-8">
                                                                          Course: {getStudentCourseLabel(student)}
                                                                      </p>
@@ -2557,6 +2820,10 @@ export function StudentDashboard() {
                                                                                 interestBusy ||
                                                                                 !!studentAcceptanceBlockedReason
                                                                             }
+                                                                            aria-busy={
+                                                                                actionLoading ===
+                                                                                `accept-${student.user_id}`
+                                                                            }
                                                                             title={
                                                                                 studentAcceptanceBlockedReason ||
                                                                                 (studentHasCourse
@@ -2568,9 +2835,8 @@ export function StudentDashboard() {
                                                                             {actionLoading ===
                                                                             `accept-${student.user_id}` ? (
                                                                                 <Loader2 className="w-3 h-3 animate-spin" />
-                                                                            ) : (
-                                                                                "Start Exploration"
-                                                                            )}
+                                                                            ) : null}
+                                                                            Start exploration
                                                                         </Button>
                                                                          <Button
                                                                              size="sm"
@@ -2587,14 +2853,17 @@ export function StudentDashboard() {
                                                                              disabled={
                                                                                  interestBusy
                                                                              }
+                                                                             aria-busy={
+                                                                                 actionLoading ===
+                                                                                 `reject-${student.user_id}`
+                                                                             }
                                                                             className="h-7 text-xs flex-1"
                                                                         >
                                                                             {actionLoading ===
                                                                             `reject-${student.user_id}` ? (
                                                                                 <Loader2 className="w-3 h-3 animate-spin" />
-                                                                            ) : (
-                                                                                "Reject"
-                                                                            )}
+                                                                            ) : null}
+                                                                            Reject
                                                                         </Button>
                                                                     </div>
                                                                 </li>
@@ -2610,7 +2879,7 @@ export function StudentDashboard() {
                                                 .length > 0 && (
                                                 <div>
                                                     <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-                                                        Exploring Candidates
+                                                        Exploring students
                                                     </h3>
                                                     <ul className="space-y-3">
                                                         {(selectedTeam.exploring_students || []).map((student) => {
@@ -2630,7 +2899,7 @@ export function StudentDashboard() {
                                                                 status === "pending_commitment" ||
                                                                 status === "committed" ||
                                                                 !selectedProjectAllowsCommitment ||
-                                                                (teamConfirmed && !studentConfirmed) ||
+                                                                teamConfirmed ||
                                                                 busy ||
                                                                 cancelBusy;
                                                             const cancelDisabled =
@@ -2640,16 +2909,16 @@ export function StudentDashboard() {
                                                                 cancelBusy;
                                                             const commitmentLabel =
                                                                 status === "pending_commitment"
-                                                                    ? "Awaiting Staff Routing"
+                                                                    ? "Awaiting staff routing"
                                                                     : status === "committed"
                                                                     ? "Committed"
                                                                     : selectedProjectIsFinalization
                                                                     ? "Finalization"
-                                                                    : teamConfirmed && !studentConfirmed
-                                                                    ? "Waiting for Student"
-                                                                    : studentConfirmed && !teamConfirmed
-                                                                    ? "Confirm Commitment"
-                                                                    : "Confirm Commitment";
+                                                                    : studentConfirmed && teamConfirmed
+                                                                    ? "Commitment confirmed"
+                                                                    : teamConfirmed
+                                                                    ? "Waiting for student"
+                                                                    : "Confirm commitment";
                                                             return (
                                                                 <li
                                                                     key={student.exploration_id || student.user_id}
@@ -2659,14 +2928,17 @@ export function StudentDashboard() {
                                                                         <button
                                                                             type="button"
                                                                             className="min-w-0 text-left"
+                                                                            aria-label={`View profile for ${student.email}`}
                                                                             onClick={() =>
                                                                                 handleViewStudentProfile(
                                                                                     student.user_id,
-                                                                                    student.email
+                                                                                    student.email,
+                                                                                    getStudentCourseLabel(student),
+                                                                                    getStudentDepartmentLabel(student)
                                                                                 )
                                                                             }
                                                                         >
-                                                                            <span className="block break-all text-sm font-medium text-slate-800">
+                                                                            <span className="block text-sm font-medium text-slate-800 [overflow-wrap:anywhere]">
                                                                                 {student.email}
                                                                             </span>
                                                                              <span className="block text-xs text-slate-500">
@@ -2683,7 +2955,7 @@ export function StudentDashboard() {
                                                                                  </span>
                                                                              )}
                                                                          </button>
-                                                                        <span className={`w-fit rounded border px-2 py-0.5 text-xs font-medium ${getExplorationStatusClass(status)}`}>
+                                                                        <span className={`w-fit shrink-0 rounded border px-2 py-0.5 text-xs font-medium ${getExplorationStatusClass(status)}`}>
                                                                             {getExplorationStatusLabel(status)}
                                                                         </span>
                                                                     </div>
@@ -2693,28 +2965,50 @@ export function StudentDashboard() {
                                                                         </p>
                                                                     )}
                                                                     <div className="mt-3 flex flex-wrap justify-end gap-2">
-                                                                        <Button
-                                                                            size="sm"
-                                                                            variant="outline"
-                                                                            className="h-7 bg-white text-xs"
-                                                                            onClick={() =>
+                                                                        <ConfirmActionDialog
+                                                                            title={
+                                                                                status === "pending_commitment"
+                                                                                    ? "Cancel commitment routing?"
+                                                                                    : "Stop exploring with this student?"
+                                                                            }
+                                                                            description={
+                                                                                status === "pending_commitment"
+                                                                                    ? `This withdraws ${student.email} from the pending course-routing review and ends this project's active exploration relationship with them. It does not change official team membership.`
+                                                                                    : `This removes ${student.email} from this project's active exploration list. It does not change official team membership, and exploration can be restarted later.`
+                                                                            }
+                                                                            confirmLabel={
+                                                                                status === "pending_commitment"
+                                                                                    ? "Cancel routing"
+                                                                                    : "Stop exploring"
+                                                                            }
+                                                                            tone="destructive"
+                                                                            onConfirm={() =>
                                                                                 student.exploration_id
                                                                                     ? handleCancelExploration(
                                                                                           student.exploration_id,
-                                                                                          "Team stopped marketplace exploration."
+                                                                                          status === "pending_commitment"
+                                                                                              ? "Team cancelled the pending marketplace commitment routing request."
+                                                                                              : "Team stopped marketplace exploration."
                                                                                       )
-                                                                                    : undefined
+                                                                                    : Promise.resolve()
                                                                             }
-                                                                            disabled={cancelDisabled}
-                                                                        >
-                                                                            {cancelBusy ? (
-                                                                                <Loader2 className="h-3 w-3 animate-spin" />
-                                                                            ) : status === "pending_commitment" ? (
-                                                                                "Cancel Routing"
-                                                                            ) : (
-                                                                                "Stop Exploring"
-                                                                            )}
-                                                                        </Button>
+                                                                            trigger={
+                                                                                <Button
+                                                                                    size="sm"
+                                                                                    variant="outline"
+                                                                                    className="h-7 bg-white text-xs"
+                                                                                    disabled={cancelDisabled}
+                                                                                    aria-busy={cancelBusy}
+                                                                                >
+                                                                                    {cancelBusy ? (
+                                                                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                                                                    ) : null}
+                                                                                    {status === "pending_commitment"
+                                                                                        ? "Cancel routing"
+                                                                                        : "Stop exploring"}
+                                                                                </Button>
+                                                                            }
+                                                                        />
                                                                         <Button
                                                                             size="sm"
                                                                             className="h-7 text-xs"
@@ -2729,12 +3023,12 @@ export function StudentDashboard() {
                                                                             disabled={
                                                                                 commitmentDisabled
                                                                             }
+                                                                            aria-busy={busy}
                                                                         >
                                                                             {busy ? (
                                                                                 <Loader2 className="h-3 w-3 animate-spin" />
-                                                                            ) : (
-                                                                                commitmentLabel
-                                                                            )}
+                                                                            ) : null}
+                                                                            {commitmentLabel}
                                                                         </Button>
                                                                     </div>
                                                                 </li>
@@ -2754,23 +3048,28 @@ export function StudentDashboard() {
                                                             <Button
                                                                 size="sm"
                                                                 variant="outline"
-                                                                className="h-8 whitespace-nowrap text-xs"
+                                                                className="h-8 w-full text-xs sm:w-auto"
                                                                 onClick={handleConfirmCommitmentRoster}
                                                                 disabled={
                                                                     !selectedTeamCanConfirmRoster ||
                                                                     actionLoading ===
                                                                         `confirm-roster-${selectedTeam.team_id}`
                                                                 }
+                                                                aria-busy={
+                                                                    actionLoading ===
+                                                                    `confirm-roster-${selectedTeam.team_id}`
+                                                                }
                                                             >
                                                                 {actionLoading ===
                                                                 `confirm-roster-${selectedTeam.team_id}` ? (
                                                                     <Loader2 className="h-3 w-3 animate-spin" />
-                                                                 ) : selectedTeamRosterAlreadyConfirmed ? (
-                                                                     "Proposal Sent"
+                                                                 ) : null}
+                                                                 {selectedTeamRosterAlreadyConfirmed ? (
+                                                                     "Proposal sent"
                                                                  ) : selectedTeamMutuallyConfirmedCandidates.length === 0 ? (
-                                                                     "Need Confirmations"
+                                                                     "Need confirmations"
                                                                  ) : (
-                                                                     "Send Roster Proposal"
+                                                                     "Send roster proposal"
                                                                  )}
                                                             </Button>
                                                         </div>
@@ -2780,7 +3079,7 @@ export function StudentDashboard() {
                                         {selectedTeam.is_leader && (
                                             <div>
                                                 <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-                                                    Pending Invites
+                                                    Pending invitations
                                                 </h3>
                                                 {teamInviteListLoading ? (
                                                     <p className="text-sm text-slate-600">
@@ -2808,10 +3107,10 @@ export function StudentDashboard() {
                                                             return (
                                                                 <li
                                                                     key={invite.invite_id}
-                                                                    className="flex items-center justify-between gap-2 rounded border border-slate-100 bg-slate-50 p-2 text-sm text-slate-700"
+                                                                    className="flex flex-col gap-2 rounded border border-slate-100 bg-slate-50 p-2 text-sm text-slate-700 sm:flex-row sm:items-center sm:justify-between"
                                                                 >
-                                                                    <span className="min-w-0">
-                                                                        <span className="block break-all">
+                                                                    <span className="min-w-0 flex-1">
+                                                                        <span className="block [overflow-wrap:anywhere]">
                                                                             {inviteeEmail}
                                                                         </span>
                                                                         {inviteAcceptancePaused && (
@@ -2822,27 +3121,46 @@ export function StudentDashboard() {
                                                                             </span>
                                                                         )}
                                                                     </span>
-                                                                    <Button
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        onClick={() =>
+                                                                    <ConfirmActionDialog
+                                                                        title="Revoke pending invitation?"
+                                                                        description={
+                                                                            <>
+                                                                                This withdraws the invitation sent to{" "}
+                                                                                <span className="font-medium text-slate-800">
+                                                                                    {inviteeEmail}
+                                                                                </span>
+                                                                                . They will no longer be able to accept it. You can invite them again later.
+                                                                            </>
+                                                                        }
+                                                                        confirmLabel="Revoke invitation"
+                                                                        tone="destructive"
+                                                                        onConfirm={() =>
                                                                             handleRevokeTeamInvite(
                                                                                 invite.invite_id
                                                                             )
                                                                         }
-                                                                        disabled={
-                                                                            revokingInviteId ===
-                                                                            invite.invite_id
+                                                                        trigger={
+                                                                            <Button
+                                                                                variant="outline"
+                                                                                size="sm"
+                                                                                disabled={
+                                                                                    revokingInviteId ===
+                                                                                    invite.invite_id
+                                                                                }
+                                                                                aria-busy={
+                                                                                    revokingInviteId ===
+                                                                                    invite.invite_id
+                                                                                }
+                                                                                className="h-7 shrink-0 self-end text-xs sm:self-auto"
+                                                                            >
+                                                                                {revokingInviteId ===
+                                                                                invite.invite_id ? (
+                                                                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                                                                ) : null}
+                                                                                Revoke
+                                                                            </Button>
                                                                         }
-                                                                        className="h-7 text-xs"
-                                                                    >
-                                                                        {revokingInviteId ===
-                                                                        invite.invite_id ? (
-                                                                            <Loader2 className="w-3 h-3 animate-spin" />
-                                                                        ) : (
-                                                                            "Revoke"
-                                                                        )}
-                                                                    </Button>
+                                                                    />
                                                                 </li>
                                                             );
                                                         })}
@@ -2869,7 +3187,7 @@ export function StudentDashboard() {
             >
                 <DialogContent className="space-y-4">
                     <DialogHeader>
-                        <DialogTitle>Start Exploration</DialogTitle>
+                        <DialogTitle>Start exploration</DialogTitle>
                         <DialogDescription>
                             {getAcceptDialogDescription()}
                         </DialogDescription>
@@ -2916,9 +3234,9 @@ export function StudentDashboard() {
                         >
                             {!!acceptTarget &&
                             actionLoading === `accept-${acceptTarget.studentId}` ? (
-                                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                <Loader2 className="h-4 w-4 animate-spin" />
                             ) : null}
-                            Start Exploration
+                            Start exploration
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -2935,7 +3253,7 @@ export function StudentDashboard() {
             >
                 <DialogContent className="space-y-4">
                     <DialogHeader>
-                        <DialogTitle>Accept Team Invite</DialogTitle>
+                        <DialogTitle>Accept team invitation</DialogTitle>
                         <DialogDescription>
                             {userHasCourse
                                 ? "Accepting this invite moves you into marketplace exploration with this team. You can commit later when both sides are ready."
@@ -2976,9 +3294,9 @@ export function StudentDashboard() {
                             {!!inviteAcceptTarget &&
                             actionLoading ===
                                 `accept-invite-${inviteAcceptTarget.inviteId}` ? (
-                                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                <Loader2 className="h-4 w-4 animate-spin" />
                             ) : null}
-                            Accept Invite
+                            Accept invitation
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -2995,11 +3313,12 @@ export function StudentDashboard() {
             >
                 <DialogContent className="space-y-4">
                     <DialogHeader>
-                        <DialogTitle>Reassign Team Leader</DialogTitle>
+                        <DialogTitle>Reassign team leader</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-2">
-                        <Label>Select teammate</Label>
+                        <Label htmlFor="reassign-team-leader">Select teammate</Label>
                         <select
+                            id="reassign-team-leader"
                             value={reassignChoice}
                             onChange={(event) =>
                                 setReassignChoice(event.target.value)
@@ -3020,7 +3339,7 @@ export function StudentDashboard() {
                         </select>
                     </div>
                     <div className="space-y-2">
-                        <Label>Reason (optional)</Label>
+                        <Label>Reason <span className="font-normal text-slate-500">(optional)</span></Label>
                         <Input
                             value={reassignReason}
                             onChange={(event) =>
@@ -3056,7 +3375,7 @@ export function StudentDashboard() {
             >
                 <DialogContent className="space-y-4">
                     <DialogHeader>
-                        <DialogTitle>Reopen Capstone for Edits</DialogTitle>
+                        <DialogTitle>Reopen capstone for edits</DialogTitle>
                         <DialogDescription>
                             This closes the project to new student interest and lets your
                             team edit the capstone again. You will need to resubmit when
@@ -3079,9 +3398,9 @@ export function StudentDashboard() {
                             disabled={withdrawReviewLoading}
                         >
                             {withdrawReviewLoading ? (
-                                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                <Loader2 className="h-4 w-4 animate-spin" />
                             ) : null}
-                            Reopen for Edits
+                            Reopen for edits
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -3098,7 +3417,7 @@ export function StudentDashboard() {
             >
                 <DialogContent className="space-y-4">
                     <DialogHeader>
-                        <DialogTitle>Abandon Project</DialogTitle>
+                        <DialogTitle>Abandon project</DialogTitle>
                         <DialogDescription>
                             This archives your solo project and clears your team membership so you can explore or commit to another project. During finalization, only an instructor or admin can disband a project.
                         </DialogDescription>
@@ -3128,9 +3447,9 @@ export function StudentDashboard() {
                             className="bg-red-600 hover:bg-red-700"
                         >
                             {actionLoading === "abandon-project" ? (
-                                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                <Loader2 className="h-4 w-4 animate-spin" />
                             ) : null}
-                            Abandon Project
+                            Abandon project
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -3148,7 +3467,7 @@ export function StudentDashboard() {
             >
                 <DialogContent className="space-y-4">
                     <DialogHeader>
-                        <DialogTitle>Decline Student Interest</DialogTitle>
+                        <DialogTitle>Decline join request</DialogTitle>
                         <DialogDescription>
                             This only declines marketplace exploration for this project. Staff or instructors can still make course and approval decisions later.
                         </DialogDescription>
@@ -3202,9 +3521,9 @@ export function StudentDashboard() {
                         >
                             {rejectTarget &&
                             actionLoading === `reject-${rejectTarget.studentId}` ? (
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                <Loader2 className="h-4 w-4 animate-spin" />
                             ) : null}
-                            Decline Interest
+                            Decline request
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -3221,7 +3540,7 @@ export function StudentDashboard() {
             >
                 <DialogContent className="space-y-4">
                     <DialogHeader>
-                        <DialogTitle>Finalize Team</DialogTitle>
+                        <DialogTitle>Finalize team</DialogTitle>
                     </DialogHeader>
                     <p className="text-sm text-slate-600">
                         This closes recruiting after required routing and review
@@ -3229,7 +3548,14 @@ export function StudentDashboard() {
                         membership, or undo finalization afterward. An instructor
                         or admin must disband the team to reverse it.
                     </p>
-                    <FinalizationReadinessChecklist items={finalizationReadinessItems} />
+                    {teamContext ? (
+                        <FinalizationReadiness readiness={teamContext.readiness} />
+                    ) : teamContextLoading ? (
+                        <div className="flex items-center gap-2 text-sm text-slate-600">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Loading finalization readiness...
+                        </div>
+                    ) : null}
                     {finalizeSupportMissing && (
                         <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                             This course requires an accepted mentor or confirmed external partner before finalization.
@@ -3252,7 +3578,7 @@ export function StudentDashboard() {
                             className="bg-emerald-600 hover:bg-emerald-700"
                         >
                             {finalizeLoading ? (
-                                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                <Loader2 className="h-4 w-4 animate-spin" />
                             ) : null}
                             Finalize
                         </Button>
@@ -3266,12 +3592,12 @@ export function StudentDashboard() {
                 onOpenChange={handleCloseInviteModal}
             >
                 <DialogContent className="sm:max-w-md">
-                    <DialogTitle>Invite Teammate</DialogTitle>
+                    <DialogTitle>Invite teammate</DialogTitle>
                     <div className="space-y-4 pt-4">
                         {selectedTeamIsRecruiting && (
                             <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                                 Invited students can accept or decline from their
-                                dashboard.
+                                Home.
                             </p>
                         )}
                         {!selectedProjectAllowsNewExploration && (
@@ -3314,187 +3640,25 @@ export function StudentDashboard() {
                                 variant="default"
                                 onClick={handleInviteSubmit}
                                 disabled={inviteLoading}
+                                aria-busy={inviteLoading}
                             >
                                 {inviteLoading ? (
-                                    <>
-                                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                                        Sending...
-                                    </>
-                                ) : (
-                                    "Send Invite"
-                                )}
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : null}
+                                Send invitation
                             </Button>
                         </div>
                     </div>
                 </DialogContent>
             </Dialog>
 
-            {/* Student Profile Modal */}
-            <Dialog
-                open={showStudentProfileModal}
-                onOpenChange={setShowStudentProfileModal}
-            >
-                <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-                    <DialogTitle>Student Profile</DialogTitle>
-                    {loadingStudentProfile ? (
-                        <div className="flex items-center justify-center py-12">
-                            <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-                        </div>
-                    ) : (
-                        <div className="space-y-6 pt-4">
-                            {/* Student Email */}
-                            <div className="space-y-2">
-                                <Label className="text-slate-500 text-xs font-semibold uppercase tracking-wider">
-                                    Email
-                                </Label>
-                                <p className="text-sm text-slate-700">
-                                    {selectedStudentEmail}
-                                </p>
-                            </div>
-
-                            {(selectedStudentProfile?.headline ||
-                                selectedStudentProfile?.availability) && (
-                                <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
-                                    {selectedStudentProfile?.headline && (
-                                        <p className="text-base font-medium text-slate-900">
-                                            {selectedStudentProfile.headline}
-                                        </p>
-                                    )}
-                                    {selectedStudentProfile?.availability && (
-                                        <p className="mt-1 text-sm text-slate-600">
-                                            {selectedStudentProfile.availability}
-                                        </p>
-                                    )}
-                                </div>
-                            )}
-
-                            {selectedStudentProfile?.about_me && (
-                                <div className="space-y-2">
-                                    <Label className="text-slate-500 text-xs font-semibold uppercase tracking-wider">
-                                        About Me
-                                    </Label>
-                                    <p className="text-sm text-slate-700 whitespace-pre-wrap">
-                                        {selectedStudentProfile.about_me}
-                                    </p>
-                                </div>
-                            )}
-
-                            {profileList(selectedStudentProfile?.skills).length > 0 && (
-                                <div className="space-y-2">
-                                    <Label className="text-slate-500 text-xs font-semibold uppercase tracking-wider">
-                                        Skills
-                                    </Label>
-                                    <div className="flex flex-wrap gap-2">
-                                        {profileList(selectedStudentProfile?.skills).map(
-                                            (skill) => (
-                                                <span
-                                                    key={skill}
-                                                    className="px-3 py-1 bg-blue-100 text-blue-700 text-sm rounded-full"
-                                                >
-                                                    {skill}
-                                                </span>
-                                            )
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                                {profileList(selectedStudentProfile?.preferred_roles)
-                                    .length > 0 && (
-                                    <div className="space-y-2">
-                                        <Label className="text-slate-500 text-xs font-semibold uppercase tracking-wider">
-                                            Preferred Roles
-                                        </Label>
-                                        <div className="flex flex-wrap gap-2">
-                                            {profileList(
-                                                selectedStudentProfile?.preferred_roles
-                                            ).map((role) => (
-                                                    <span
-                                                        key={role}
-                                                        className="px-3 py-1 bg-emerald-100 text-emerald-700 text-sm rounded-full"
-                                                    >
-                                                        {role}
-                                                    </span>
-                                                ))}
-                                        </div>
-                                    </div>
-                                )}
-                                {profileList(selectedStudentProfile?.project_interests)
-                                    .length > 0 && (
-                                    <div className="space-y-2">
-                                        <Label className="text-slate-500 text-xs font-semibold uppercase tracking-wider">
-                                            Project Interests
-                                        </Label>
-                                        <div className="flex flex-wrap gap-2">
-                                            {profileList(
-                                                selectedStudentProfile?.project_interests
-                                            ).map((interest) => (
-                                                <span
-                                                    key={interest}
-                                                    className="px-3 py-1 bg-amber-100 text-amber-800 text-sm rounded-full"
-                                                >
-                                                    {interest}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            {(selectedStudentProfile?.interested_departments || [])
-                                .length > 0 && (
-                                <div className="space-y-2">
-                                    <Label className="text-slate-500 text-xs font-semibold uppercase tracking-wider">
-                                        Interested Departments
-                                    </Label>
-                                    <div className="flex flex-wrap gap-2">
-                                        {(
-                                            selectedStudentProfile?.interested_departments ||
-                                            []
-                                        ).map((department) => (
-                                            <span
-                                                key={department.department_id}
-                                                className="px-3 py-1 bg-slate-100 text-slate-700 text-sm rounded-full"
-                                            >
-                                                {department.name}
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {profileLinks(selectedStudentProfile).length > 0 && (
-                                <div className="space-y-2">
-                                    <Label className="text-slate-500 text-xs font-semibold uppercase tracking-wider">
-                                        Links
-                                    </Label>
-                                    <div className="flex flex-wrap gap-2">
-                                        {profileLinks(selectedStudentProfile).map((link) => (
-                                            <a
-                                                key={link.label}
-                                                href={link.href}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="rounded-md border border-slate-200 px-3 py-1 text-sm text-slate-700 hover:bg-slate-50"
-                                            >
-                                                {link.label}
-                                            </a>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {!hasProfileContent(selectedStudentProfile) && (
-                                <div className="text-center py-8 text-slate-500">
-                                    This student hasn't set up their profile yet.
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </DialogContent>
-            </Dialog>
-        </div>
+            <StudentProfileDialog
+                student={profileStudent}
+                open={profileStudent !== null}
+                onOpenChange={(open) => {
+                    if (!open) setProfileStudent(null);
+                }}
+            />
+        </PageShell>
     );
 }
-

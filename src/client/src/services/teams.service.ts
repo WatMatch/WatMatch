@@ -1,4 +1,5 @@
 import { apiFetch, buildApiUrl, readApiError } from "@/lib/api-client";
+import type { CapstoneSupportSummary } from "./capstones.service";
 
 async function errorMessage(response: Response, fallback: string): Promise<string> {
     return readApiError(response, fallback);
@@ -125,6 +126,87 @@ export interface TeamPendingInvite {
         role?: string;
         course_fk?: number | null;
     } | null;
+}
+
+export interface CapstoneTeamContextMember {
+    user_id: number;
+    email: string;
+    is_leader?: boolean;
+    course_fk?: number | null;
+    course?: {
+        course_id?: number;
+        code?: string;
+        name?: string;
+        active?: boolean;
+    } | null;
+    enrollment_course_fk?: number | null;
+    enrollment_course?: {
+        course_id?: number;
+        code?: string;
+        name?: string;
+        active?: boolean;
+    } | null;
+    home_department_id?: number | null;
+    home_department?: {
+        department_id?: number;
+        name?: string;
+        active?: boolean;
+    } | null;
+}
+
+export interface CapstoneReadinessItem {
+    key: string;
+    label: string;
+    ready: boolean;
+    detail: string;
+}
+
+export interface CapstoneTeamContext {
+    team_id: number;
+    capstone_id: number;
+    team_status?: string | null;
+    leader_fk?: number | null;
+    project: {
+        capstone_id: number;
+        title?: string | null;
+        description?: string | null;
+        status?: string | null;
+        course_fk?: number | null;
+        marketplace_phase?: string | null;
+    };
+    members: CapstoneTeamContextMember[];
+    readiness: {
+        ready: boolean;
+        ready_count: number;
+        total_count: number;
+        pending_commitment_request_count: number;
+        mutually_confirmed_exploration_count: number;
+        items: CapstoneReadinessItem[];
+    };
+    support_summary: CapstoneSupportSummary;
+    capabilities: {
+        is_official_member: boolean;
+        is_leader: boolean;
+        can_manage_roster: boolean;
+        can_manage_support: boolean;
+        can_submit_roster: boolean;
+        can_finalize: boolean;
+    };
+}
+
+export async function fetchCapstoneTeamContext(
+    capstoneId: string | number
+): Promise<CapstoneTeamContext> {
+    const response = await apiFetch(
+        buildApiUrl(`/api/v1/teams/capstone/${capstoneId}/context`)
+    );
+    if (!response.ok) {
+        throw new Error(
+            await errorMessage(response, "Failed to fetch capstone team context")
+        );
+    }
+    const result = await response.json();
+    return result.data as CapstoneTeamContext;
 }
 
 /**
@@ -269,12 +351,14 @@ export async function fetchTeamInvites(
     return Array.isArray(result?.data) ? result.data : [];
 }
 
-export async function revokeInvite(inviteId: string): Promise<void> {
+export async function revokeInvite(inviteId: string, reason?: string): Promise<void> {
+    const normalizedReason = reason?.trim();
     const response = await apiFetch(buildApiUrl("/api/v1/invites/revoke"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
             invite_id: inviteId,
+            ...(normalizedReason ? { reason: normalizedReason } : {}),
         }),
     });
 

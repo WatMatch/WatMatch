@@ -21,6 +21,8 @@ import {
 import { requestProjectSubmissionEnrollment } from "@/services/capstones.service";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Card } from "@/components/ui/card";
 import {
     Select,
     SelectContent,
@@ -28,6 +30,13 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import {
+    BrowseLoading,
+    BrowseNotice,
+    BrowsePageHeader,
+    BrowsePageShell,
+    DetailDisclosure,
+} from "@/components/capstones/BrowsePage";
 
 function readStoredFinalizationOverrideReason(studentId: number, courseId: number) {
     if (typeof window === "undefined") return "";
@@ -253,9 +262,9 @@ function ProjectFormPageContent() {
                     const status = leaderTeamWithCapstone.project?.status?.toLowerCase?.();
                     setBlockedReason(
                         status === "changes_requested" || status === "rejected"
-                            ? "Use your dashboard to revise and resubmit this capstone."
+                            ? "Use Home to revise and resubmit this capstone."
                             : status === "draft"
-                            ? "Use your dashboard to edit and submit this capstone."
+                            ? "Use Home to edit and submit this capstone."
                             : status === "approved_recruiting"
                             ? "Your team already has an approved capstone accepting student interest."
                             : status === "complete"
@@ -534,6 +543,7 @@ function ProjectFormPageContent() {
                 window.sessionStorage.removeItem("watmatchFinalizationOverride");
             }
             router.push("/project-form/success");
+            return true;
         } catch (error) {
             console.error("Failed to submit form:", error);
             setSubmitError(
@@ -541,6 +551,7 @@ function ProjectFormPageContent() {
                     ? error.message
                     : "Failed to submit project. Please try again."
             );
+            return false;
         } finally {
             setSubmitting(false);
         }
@@ -577,153 +588,191 @@ function ProjectFormPageContent() {
 
     if (checkingAccess) {
         return (
-            <div className="min-h-full bg-slate-50 px-3 py-8 sm:px-8 sm:py-12">
-                <div className="mx-auto max-w-4xl text-slate-600">Checking access...</div>
-            </div>
+            <BrowsePageShell>
+                <div className="mx-auto w-full max-w-4xl">
+                    <BrowseLoading label="Checking proposal access…" />
+                </div>
+            </BrowsePageShell>
         );
     }
 
     if (blockedReason) {
         return (
-            <div className="min-h-full bg-slate-50 px-3 py-8 sm:px-8 sm:py-12">
-                <div className="mx-auto max-w-4xl rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
-                    <p className="text-slate-900 font-medium mb-2">Submit Project Unavailable</p>
-                    <p className="text-slate-600">{blockedReason}</p>
+            <BrowsePageShell>
+                <div className="mx-auto w-full max-w-4xl space-y-5">
+                    <BrowsePageHeader
+                        eyebrow="Capstone proposal"
+                        title="Submission unavailable"
+                        description="WatMatch checked your current team and proposal state."
+                    />
+                    <Card className="gap-4 p-5 sm:p-6">
+                        <BrowseNotice tone="warning">{blockedReason}</BrowseNotice>
+                        <div>
+                            <Button type="button" variant="outline" onClick={() => router.push("/dashboard")}>
+                                Return to Home
+                            </Button>
+                        </div>
+                    </Card>
                 </div>
-            </div>
+            </BrowsePageShell>
         );
     }
 
     if (needsEnrollmentRequest) {
         return (
-            <div className="min-h-full bg-slate-50 px-3 py-8 sm:px-8 sm:py-12">
-                <div className="mx-auto max-w-4xl rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
-                    <p className="text-slate-900 font-medium mb-2">
-                        Request Course Enrollment
-                    </p>
-                    <p className="text-sm text-slate-600">
-                        {enrollmentRequestIntro}
-                    </p>
+            <BrowsePageShell>
+                <div className="mx-auto w-full max-w-4xl space-y-5">
+                    <BrowsePageHeader
+                        eyebrow="Course access"
+                        title="Request a capstone course"
+                        description="A staffed enrollment route is required before you can submit your own proposal."
+                    />
+                    <Card className="gap-0 p-0">
+                        <div className="border-b border-slate-100 bg-slate-50/60 px-5 py-4">
+                            <h2 className="text-sm font-semibold text-slate-950">Your requested route</h2>
+                            <p className="mt-1 text-sm leading-6 text-slate-600">{enrollmentRequestIntro}</p>
+                        </div>
+                        <div className="space-y-5 p-5">
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <div className="space-y-2">
+                                    <Label htmlFor="requested-enrollment-course">Requested course</Label>
+                                    <Select value={selectedEnrollmentCourseId} onValueChange={setSelectedEnrollmentCourseId}>
+                                        <SelectTrigger id="requested-enrollment-course">
+                                            <SelectValue placeholder="Choose a staffed course" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {courses.map((course) => (
+                                                <SelectItem key={course.course_id} value={String(course.course_id)}>
+                                                    {courseOptionLabel(course, { includeDepartment: true })}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="enrollment-request-note">Note for staff <span className="font-normal text-slate-500">(optional)</span></Label>
+                                    <Textarea
+                                        id="enrollment-request-note"
+                                        value={enrollmentComments}
+                                        onChange={(event) => setEnrollmentComments(event.target.value)}
+                                        placeholder="Share context that may help staff route you"
+                                        rows={4}
+                                    />
+                                </div>
+                            </div>
 
-                    <div className="mt-5 grid gap-3 md:grid-cols-[minmax(240px,1fr)_minmax(260px,1fr)]">
-                        <Select
-                            value={selectedEnrollmentCourseId}
-                            onValueChange={setSelectedEnrollmentCourseId}
-                        >
-                            <SelectTrigger>
-                                <SelectValue placeholder="Choose requested course" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {courses.map((course) => (
-                                    <SelectItem
-                                        key={course.course_id}
-                                        value={String(course.course_id)}
-                                    >
-                                        {courseOptionLabel(course, { includeDepartment: true })}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        <Textarea
-                            value={enrollmentComments}
-                            onChange={(event) => setEnrollmentComments(event.target.value)}
-                            placeholder="Optional note for the advisor"
-                            className="min-h-10"
-                        />
-                    </div>
+                            {enrollmentError && <BrowseNotice tone="error">{enrollmentError}</BrowseNotice>}
+                            {enrollmentMessage && <BrowseNotice tone="success">{enrollmentMessage}</BrowseNotice>}
+                            {courses.length === 0 && !enrollmentError && (
+                                <BrowseNotice tone="warning">No staffed active courses are available right now.</BrowseNotice>
+                            )}
 
-                    {enrollmentError && (
-                        <p className="mt-3 text-sm text-red-600">{enrollmentError}</p>
-                    )}
-                    {enrollmentMessage && (
-                        <p className="mt-3 text-sm text-green-700">{enrollmentMessage}</p>
-                    )}
-                    {courses.length === 0 && !enrollmentError && (
-                        <p className="mt-3 text-sm text-slate-600">
-                            No staffed active courses are available right now.
-                        </p>
-                    )}
-
-                    <div className="mt-5 flex justify-end">
-                        <Button
-                            type="button"
-                            onClick={handleEnrollmentRequest}
-                            disabled={
-                                enrollmentSubmitting ||
-                                courses.length === 0 ||
-                                !selectedEnrollmentCourseId
-                            }
-                        >
-                            {enrollmentSubmitting ? "Submitting..." : "Submit Request"}
+                            <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                                <p className="max-w-xl text-xs leading-5 text-slate-500">
+                                    Staff may approve this course or select a better staffed route. Registrar/Quest updates remain a separate manual step.
+                                </p>
+                                <Button
+                                    type="button"
+                                    onClick={handleEnrollmentRequest}
+                                    disabled={enrollmentSubmitting || courses.length === 0 || !selectedEnrollmentCourseId}
+                                    className="w-full sm:w-auto"
+                                >
+                                    {enrollmentSubmitting ? "Submitting…" : "Submit request"}
+                                </Button>
+                            </div>
+                        </div>
+                    </Card>
+                    <div>
+                        <Button type="button" variant="ghost" onClick={() => router.push("/dashboard")}>
+                            Return to Home
                         </Button>
                     </div>
                 </div>
-            </div>
+            </BrowsePageShell>
         );
     }
 
     return (
-        <div className="min-h-full bg-slate-50 px-3 py-8 sm:px-8 sm:py-12">
-            <div className="mx-auto max-w-4xl">
+        <BrowsePageShell>
+            <div className="mx-auto w-full max-w-4xl space-y-5">
+                <BrowsePageHeader
+                    eyebrow={adminOverrideMode ? "Admin exception proposal" : "Student proposal"}
+                    title="Submit a capstone proposal"
+                    description="Build the proposal in focused sections, then review the complete submission before sending it into course routing and instructor review."
+                />
                 {teamWithoutCapstoneId && (
-                    <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-                        This submission will be linked to your existing team (Team ID:{" "}
-                        {teamWithoutCapstoneId}). One capstone idea per team is allowed.
-                    </div>
+                    <BrowseNotice tone="info">
+                        This proposal will be linked to your existing team. Each team can have one active capstone idea.
+                    </BrowseNotice>
                 )}
                 {adminOverrideMode && (
-                    <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    <BrowseNotice tone="warning">
                         Admin finalization exception mode. This proposal will be created for
                         student #{adminTargetStudentId}. Course #{adminTargetCourseId} will be the
                         default routing recommendation until staff approves the official course.
-                    </div>
+                    </BrowseNotice>
                 )}
                 {partnerNotice && (
-                    <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-                        {partnerNotice}
-                    </div>
+                    <BrowseNotice tone="info">{partnerNotice}</BrowseNotice>
                 )}
                 {partnerOpportunities.length > 0 && (
-                    <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4">
-                        <p className="mb-2 text-sm font-medium text-slate-900">
-                            External Partner Opportunity
-                        </p>
-                        <Select
-                            value={selectedOpportunityId}
-                            onValueChange={handleOpportunitySelect}
-                        >
-                            <SelectTrigger>
-                                <SelectValue placeholder="Optional external opportunity" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="none">No external opportunity</SelectItem>
-                                {partnerOpportunities.map((opportunity) => (
-                                    <SelectItem
-                                        key={opportunity.partner_opportunity_id}
-                                        value={String(opportunity.partner_opportunity_id)}
-                                    >
-                                        {opportunity.title} - {opportunity.organization}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
+                    <DetailDisclosure
+                        label={selectedOpportunityId === "none" ? "Attach an external opportunity (optional)" : "External opportunity attached"}
+                        defaultOpen={selectedOpportunityId !== "none"}
+                    >
+                        <div className="space-y-2">
+                            <Label htmlFor="partner-opportunity">Partner opportunity</Label>
+                            <Select value={selectedOpportunityId} onValueChange={handleOpportunitySelect}>
+                                <SelectTrigger id="partner-opportunity">
+                                    <SelectValue placeholder="Optional external opportunity" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="none">No external opportunity</SelectItem>
+                                    {partnerOpportunities.map((opportunity) => (
+                                        <SelectItem key={opportunity.partner_opportunity_id} value={String(opportunity.partner_opportunity_id)}>
+                                            {opportunity.title} — {opportunity.organization}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <p className="text-xs leading-5 text-slate-500">
+                                Choosing an opportunity prefills relevant fields. Confirm partner support before submission.
+                            </p>
+                        </div>
+                    </DetailDisclosure>
                 )}
                 <ProjectForm
                     initialValues={initialValues}
                     onSubmit={handleSubmit}
+                    draftStorageKey={
+                        adminOverrideMode
+                            ? `watmatch:project-exception:${adminTargetStudentId}:${adminTargetCourseId}`
+                            : user?.user_id
+                              ? `watmatch:project-proposal:${user.user_id}:${selectedOpportunityId}`
+                              : null
+                    }
                     isSubmitting={submitting}
                     submissionError={submitError}
+                    submitLabel="Submit proposal"
+                    className="w-full"
                 />
             </div>
-        </div>
+        </BrowsePageShell>
     );
 }
 
 export default function ProjectFormPage() {
     return (
         <ProtectedRoute>
-            <Suspense fallback={<div className="min-h-full bg-slate-50 px-3 py-8 sm:px-8 sm:py-12">Loading...</div>}>
+            <Suspense
+                fallback={
+                    <BrowsePageShell>
+                        <div className="mx-auto w-full max-w-4xl">
+                            <BrowseLoading label="Loading proposal form…" />
+                        </div>
+                    </BrowsePageShell>
+                }
+            >
                 <ProjectFormPageContent />
             </Suspense>
         </ProtectedRoute>

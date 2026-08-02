@@ -117,7 +117,13 @@ class InvitesDataLogic:
         except Exception as e:
             raise Exception(f"Database error in decline_invite_rpc: {str(e)}")
 
-    def revoke_invite_rpc(self, invite_id: str, actor_id: int, actor_role: str) -> Dict[str, Any]:
+    def revoke_invite_rpc(
+        self,
+        invite_id: str,
+        actor_id: int,
+        actor_role: str,
+        reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Run the transactional Supabase invite revoke workflow."""
         try:
             return call_json_rpc(
@@ -126,6 +132,7 @@ class InvitesDataLogic:
                     "p_invite_id": invite_id,
                     "p_actor_id": actor_id,
                     "p_actor_role": actor_role,
+                    "p_reason": reason,
                 },
             )
         except Exception as e:

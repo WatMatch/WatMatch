@@ -17,6 +17,13 @@ import {
     type FullCapstoneDetails,
 } from "@/services/capstones.service";
 import { fetchUserCapstone } from "@/services/users.service";
+import { Card } from "@/components/ui/card";
+import {
+    BrowseLoading,
+    BrowseNotice,
+    BrowsePageHeader,
+    BrowsePageShell,
+} from "@/components/capstones/BrowsePage";
 
 function toStringArray(input: unknown): string[] {
     if (Array.isArray(input)) {
@@ -222,7 +229,7 @@ function ResubmitCapstonePageContent() {
                 <div className="mt-6 space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
                 <div className="space-y-2">
                     <Label className="text-sm font-semibold text-slate-900">
-                        Instructor Feedback
+                        Instructor feedback
                     </Label>
                     <p className="text-sm text-slate-700 whitespace-pre-wrap">
                         {feedbackText || feedbackFallback}
@@ -252,7 +259,7 @@ function ResubmitCapstonePageContent() {
     const handleSubmit = async (values: ProjectFormValues) => {
         if (!isStudent) {
             setError("Only students can resubmit capstones.");
-            return;
+            return false;
         }
         if (!changeSummary.trim()) {
             setError(
@@ -260,7 +267,7 @@ function ResubmitCapstonePageContent() {
                     ? "Please describe what changed before submitting for review."
                     : "Please answer: What did you change based on instructor feedback?"
             );
-            return;
+            return false;
         }
 
         setSubmitting(true);
@@ -313,6 +320,7 @@ function ResubmitCapstonePageContent() {
                 change_summary: changeSummary.trim(),
             });
             router.push("/dashboard");
+            return true;
         } catch (submitError) {
             console.error("Failed to resubmit capstone:", submitError);
             setError(
@@ -320,55 +328,64 @@ function ResubmitCapstonePageContent() {
                     ? submitError.message
                     : "Failed to resubmit capstone."
             );
+            return false;
         } finally {
             setSubmitting(false);
         }
     };
 
     if (loading) {
-        return <div className="min-h-full bg-slate-50 px-3 py-8 sm:px-8 sm:py-12">Loading...</div>;
+        return (
+            <BrowsePageShell>
+                <div className="mx-auto w-full max-w-4xl">
+                    <BrowseLoading label="Loading your proposal…" />
+                </div>
+            </BrowsePageShell>
+        );
     }
 
     return (
-        <div className="min-h-full bg-slate-50 px-3 py-8 sm:px-8 sm:py-12">
-            <div className="mx-auto max-w-4xl space-y-4">
-                <div className="flex items-center justify-between">
-                    <Button
-                        variant="outline"
-                        onClick={() => router.push("/dashboard")}
-                    >
-                        Back to Dashboard
-                    </Button>
-                </div>
-                {error && <p className="text-sm text-red-600">{error}</p>}
+        <BrowsePageShell>
+            <div className="mx-auto w-full max-w-4xl space-y-5">
+                <BrowsePageHeader
+                    eyebrow={isDraft ? "Draft proposal" : "Instructor feedback"}
+                    title={isDraft ? "Submit your proposal" : "Revise your proposal"}
+                    description={
+                        isDraft
+                            ? "Review the draft, complete each section, and check the full proposal before sending it to the instructor."
+                            : "Update the proposal in response to feedback, summarize the changes, and review everything before resubmitting."
+                    }
+                    actions={
+                        <Button variant="outline" onClick={() => router.push("/dashboard")}>
+                            Back to Home
+                        </Button>
+                    }
+                />
+                {error && !canResubmit && <BrowseNotice tone="error">{error}</BrowseNotice>}
                 {canResubmit ? (
-                    <>
-                        <ProjectForm
-                            initialValues={initialValues}
-                            onSubmit={handleSubmit}
-                            submitLabel={isDraft ? "Submit to Instructor" : "Resubmit to Instructor"}
-                            isSubmitting={submitting}
-                            finalExtraSection={finalExtraSection}
-                        />
-                        <div className="flex justify-end">
-                            <Button
-                                variant="outline"
-                                onClick={() => router.back()}
-                                className="w-full sm:w-auto"
-                            >
-                                Cancel
-                            </Button>
-                        </div>
-                    </>
+                    <ProjectForm
+                        initialValues={initialValues}
+                        onSubmit={handleSubmit}
+                        draftStorageKey={
+                            user?.user_id
+                                ? `watmatch:project-resubmit:${user.user_id}:${capstoneId}`
+                                : null
+                        }
+                        submitLabel={isDraft ? "Submit to instructor" : "Resubmit to instructor"}
+                        isSubmitting={submitting}
+                        submissionError={error}
+                        finalExtraSection={finalExtraSection}
+                        className="w-full"
+                    />
                 ) : (
-                    <div className="rounded-lg border border-slate-200 bg-white p-6">
+                    <Card className="p-6">
                         <p className="text-sm text-slate-600">
                             Only draft, rejected, or change-requested capstones can be revised here.
                         </p>
-                    </div>
+                    </Card>
                 )}
             </div>
-        </div>
+        </BrowsePageShell>
     );
 }
 

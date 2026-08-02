@@ -90,6 +90,14 @@ class StudentProfileDataLogic:
                 return True
             if role == "admin":
                 return True
+            # Official teammates always need the same collaboration profile,
+            # even when the owner has hidden it from recruiting and discovery
+            # relationships. Keep this check narrower than team_network: it is
+            # backed only by shared official team_memberships rows.
+            if role == "student" and self._students_share_official_team(
+                student_id, requester_id
+            ):
+                return True
             if role == "instructor":
                 return self._instructor_is_connected_to_student(student_id, requester_id)
             if visibility == "private":
@@ -163,6 +171,14 @@ class StudentProfileDataLogic:
             for row in rows
             if row.get("team_fk") is not None
         }
+
+    def _students_share_official_team(self, student_id: int, requester_id: int) -> bool:
+        """Return true only for students sharing an official membership row."""
+        target_team_ids = self._team_ids_for_student(student_id)
+        if not target_team_ids:
+            return False
+        requester_team_ids = self._team_ids_for_student(requester_id)
+        return bool(target_team_ids.intersection(requester_team_ids))
 
     def _students_are_connected(self, student_id: int, requester_id: int) -> bool:
         target_team_ids = self._team_ids_for_student(student_id)

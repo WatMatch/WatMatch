@@ -8,6 +8,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { FormSectionProps, ProjectFormValues } from "./types";
 import { disciplines, projectStartTerms } from "./config";
+import { taxonomyChipClassName } from "@/components/ui/taxonomy-chip";
 import { MultiSelect } from "@/components/ui/multiselect";
 import { fetchDepartments } from "@/services/departments.service";
 import { fetchCourses, type Course } from "@/services/courses.service";
@@ -141,7 +142,6 @@ export function PreliminaryInfoSection({ control }: FormSectionProps) {
 
     return (
         <div className="space-y-4">
-            <h2 className="text-lg font-semibold">Preliminary Information</h2>
             <FormField
                 control={control}
                 name="submissionTrack"
@@ -293,6 +293,7 @@ export function PreliminaryInfoSection({ control }: FormSectionProps) {
                                 value={field.value || []}
                                 onChange={field.onChange}
                                 placeholder="Search and select disciplines..."
+                                chipClassName={() => taxonomyChipClassName("discipline")}
                             />
                         </FormControl>
                         <FormMessage />
