@@ -32,6 +32,6 @@ Feedback Team:
 
 ## Action Items
 
-- [ ] Redesign Mid 2 flows around marketplace exploration and human-led selection.
-- [ ] Discuss whether the Mid 2 and Final plan is realistic for the current team size.
+- [x] Redesign Mid 2 flows around marketplace exploration and human-led selection.
+- [x] Discuss whether the Mid 2 and Final plan is realistic for the current team size.
 

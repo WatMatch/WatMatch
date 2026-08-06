@@ -32,6 +32,6 @@ Feedback Team:
 
 ## Action Items
 
-- [ ] Confirm course-stage assumptions with Derek and Jamieson.
-- [ ] Use this feedback to decide how much flow granularity belongs in Mid 1 diagrams.
+- [x] Confirm course-stage assumptions with Derek and Jamieson.
+- [x] Use this feedback to decide how much flow granularity belongs in Mid 1 diagrams.
 

@@ -32,7 +32,7 @@ Feedback Team:
 
 ## Action Items
 
-- [ ] Create Mid 2 GitLab issues for single-course flows.
-- [ ] Redesign Figma diagrams around the new marketplace direction.
-- [ ] Keep cross-course routing documented but outside the Mid 2 implementation scope.
+- [x] Create Mid 2 GitLab issues for single-course flows.
+- [x] Redesign Figma diagrams around the new marketplace direction.
+- [x] Keep cross-course routing documented but outside the Mid 2 implementation scope.
 

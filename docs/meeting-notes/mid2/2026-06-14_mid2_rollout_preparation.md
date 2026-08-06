@@ -32,7 +32,7 @@ Feedback Team:
 
 ## Action Items
 
-- [ ] Deploy the read-only past-capstones archive.
-- [ ] Add a small private feedback box.
-- [ ] Ask stakeholders whether the archive can be shared with SE 490 classmates.
+- [x] Deploy the read-only past-capstones archive.
+- [x] Add a small private feedback box.
+- [x] Ask stakeholders whether the archive can be shared with SE 490 classmates.
 

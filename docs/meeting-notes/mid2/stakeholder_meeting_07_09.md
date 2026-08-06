@@ -39,11 +39,11 @@ Mid 3 will preserve one shared capstone/team while distinguishing project-suppor
 
 ## Action Items
 
-- [ ] Rename the generic Mentor role to University Mentor in user-facing flows.
-- [ ] Replace the current Academic Advisor framing with Community Mentor.
-- [ ] Keep External Partner separate from all mentor roles.
-- [ ] Add an optional, project-specific University Relationship Manager association.
-- [ ] Add the interdisciplinary participation disclaimer before students express interest or commit.
-- [ ] Show the coordinating project course and each student's enrollment course separately in staff routing.
-- [ ] Keep Quest/registrar updates as an explicit manual Enrollment Coordinator responsibility.
-- [ ] Confirm term-specific held-with and enrollment routes against Waterloo's Schedule of Classes before activation.
+- [x] Rename the generic Mentor role to University Mentor in user-facing flows.
+- [x] Replace the current Academic Advisor framing with Community Mentor.
+- [x] Keep External Partner separate from all mentor roles.
+- [x] Add an optional, project-specific University Relationship Manager association.
+- [x] Add the interdisciplinary participation disclaimer before students express interest or commit.
+- [x] Show the coordinating project course and each student's enrollment course separately in staff routing.
+- [x] Keep Quest/registrar updates as an explicit manual Enrollment Coordinator responsibility.
+- [x] Confirm term-specific held-with and enrollment routes against Waterloo's Schedule of Classes before activation.

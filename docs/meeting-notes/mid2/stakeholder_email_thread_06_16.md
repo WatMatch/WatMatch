@@ -36,5 +36,5 @@ The past-capstones archive was approved for student feedback rollout.
 ## Action Items
 
 - [x] Share the deployed archive with students for feedback.
-- [ ] Monitor submitted product feedback in Supabase.
-- [ ] Feed recurring feedback themes into Mid 2 and Final planning.
+- [x] Monitor submitted product feedback in Supabase.
+- [x] Feed recurring feedback themes into Mid 2 and Final planning.

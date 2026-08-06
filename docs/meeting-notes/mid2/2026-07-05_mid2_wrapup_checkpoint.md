@@ -31,8 +31,8 @@ Feedback Team:
 
 ## Action Items
 
-- [ ] Commit and push Mid 2 meeting-note documentation.
-- [ ] Create a merge request for documentation updates.
-- [ ] Use these notes to support Mid 2 presentation and demo framing.
+- [x] Commit and push Mid 2 meeting-note documentation.
+- [x] Create a merge request for documentation updates.
+- [x] Use these notes to support Mid 2 presentation and demo framing.
 
 

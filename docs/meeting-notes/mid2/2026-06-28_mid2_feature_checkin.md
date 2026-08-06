@@ -32,7 +32,7 @@ Feedback Team:
 
 ## Action Items
 
-- [ ] Keep Mid 2 issues focused on single-course WatMatch.
-- [ ] Prepare demo seed data for manual testing.
-- [ ] Validate white-screen and unhappy-path behavior before presenting.
+- [x] Keep Mid 2 issues focused on single-course WatMatch.
+- [x] Prepare demo seed data for manual testing.
+- [x] Validate white-screen and unhappy-path behavior before presenting.
 

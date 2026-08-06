@@ -32,6 +32,6 @@ Feedback Team:
 
 ## Action Items
 
-- [ ] Confirm the proposed flows with Derek and Jamieson.
-- [ ] Keep past-capstone browsing focused on public historical project information.
+- [x] Confirm the proposed flows with Derek and Jamieson.
+- [x] Keep past-capstone browsing focused on public historical project information.
 
