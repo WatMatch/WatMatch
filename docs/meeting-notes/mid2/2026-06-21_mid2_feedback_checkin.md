@@ -30,7 +30,7 @@ Feedback Team:
 
 ## Action Items
 
-- [ ] Summarize feedback themes in a separate product feedback note.
-- [ ] Add project category/tag filtering to future planning.
-- [ ] Keep richer profiles and current-project discovery in Mid 2 scope.
+- [x] Summarize feedback themes in a separate product feedback note.
+- [x] Add project category/tag filtering to future planning.
+- [x] Keep richer profiles and current-project discovery in Mid 2 scope.
 

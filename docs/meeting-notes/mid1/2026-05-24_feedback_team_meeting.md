@@ -30,6 +30,6 @@ Feedback Team:
 
 ## Action Items
 
-- [ ] Continue Mid 1 Figma diagrams for the core WatMatch foundation.
-- [ ] Avoid over-specifying flows that depend on stakeholder confirmation.
+- [x] Continue Mid 1 Figma diagrams for the core WatMatch foundation.
+- [x] Avoid over-specifying flows that depend on stakeholder confirmation.
 

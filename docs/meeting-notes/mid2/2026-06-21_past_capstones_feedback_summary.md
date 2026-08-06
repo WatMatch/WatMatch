@@ -40,6 +40,6 @@ Anonymized feedback submitted through the deployed past-capstones archive.
 
 ## Action Items
 
-- [ ] Use feedback to justify student profiles and current-project marketplace exploration in Mid 2.
-- [ ] Track project-type/theme filters as a high-value future improvement.
-- [ ] Avoid overbuilding knowledge graph functionality before the core marketplace flow works.
+- [x] Use feedback to justify student profiles and current-project marketplace exploration in Mid 2.
+- [x] Track project-type/theme filters as a high-value future improvement.
+- [x] Avoid overbuilding knowledge graph functionality before the core marketplace flow works.
