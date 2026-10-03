@@ -6,7 +6,8 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint src --max-warnings=0"
+    "lint": "eslint src --max-warnings=0",
+    "test": "node --test tests/*.test.cjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

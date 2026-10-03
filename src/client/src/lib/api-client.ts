@@ -9,7 +9,7 @@ let failedQueue: Array<{
 }> = [];
 
 const RAW_API_BASE_URL =
-    process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
+    process.env.NEXT_PUBLIC_API_URL || "/api/v1";
 const API_BASE_URL = RAW_API_BASE_URL.replace(/\/$/, "");
 const API_ORIGIN_URL = API_BASE_URL.replace(/\/api\/v1$/, "");
 const TRANSIENT_FETCH_RETRY_DELAY_MS = 250;
@@ -181,7 +181,10 @@ export const buildApiUrl = (
     base: string,
     params?: Record<string, string | number | boolean | undefined | null>
 ): string => {
-    const url = new URL(normalizeApiUrl(base));
+    const normalizedUrl = normalizeApiUrl(base);
+    const isRelative = normalizedUrl.startsWith("/");
+    // Use a parsing base only; relative URLs stay on the browser's current origin.
+    const url = new URL(normalizedUrl, "http://watmatch.invalid");
 
     if (params) {
         Object.entries(params).forEach(([key, value]) => {
@@ -191,7 +194,7 @@ export const buildApiUrl = (
         });
     }
 
-    return url.toString();
+    return isRelative ? `${url.pathname}${url.search}${url.hash}` : url.toString();
 };
 
 export const readApiError = async (
