@@ -14,6 +14,9 @@ interface UserData {
     email: string;
     course_fk: string | number | null;
     role: string;
+    active_role?: string;
+    default_role?: string;
+    assigned_roles?: string[];
     course_active?: boolean | null;
     home_department_fk?: string | number | null;
     home_department_id?: string | number | null;

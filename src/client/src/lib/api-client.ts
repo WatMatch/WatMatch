@@ -3,6 +3,7 @@ export interface FetchOptions extends RequestInit {
 }
 
 let isRefreshing = false;
+let isSwitchingRole = false;
 let failedQueue: Array<{
     resolve: (token: string) => void;
     reject: (error: Error) => void;
@@ -41,6 +42,15 @@ const clearLocalAuth = () => {
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
     localStorage.removeItem("userData");
+};
+
+const workspaceKey = (): string => {
+    try {
+        const user = JSON.parse(localStorage.getItem("userData") || "null");
+        return `${user?.user_id || ""}:${user?.role || ""}`;
+    } catch {
+        return "";
+    }
 };
 
 const isSafeRequestMethod = (method?: string) => {
@@ -87,6 +97,10 @@ const refreshAccessToken = async (): Promise<string> => {
     }
 
     const data = await response.json();
+    // A login or role switch in another tab supersedes this refresh.
+    if (localStorage.getItem("refreshToken") !== refreshToken) {
+        throw new Error("Your session changed. Please refresh this page.");
+    }
     const newAccessToken = data.data.access_token;
     const newRefreshToken = data.data.refresh_token;
 
@@ -94,6 +108,7 @@ const refreshAccessToken = async (): Promise<string> => {
     if (newRefreshToken) {
         localStorage.setItem("refreshToken", newRefreshToken);
     }
+    if (data.data.user) localStorage.setItem("userData", JSON.stringify(data.data.user));
 
     return newAccessToken;
 };
@@ -103,6 +118,13 @@ export const apiFetch = async (
     options: FetchOptions = {}
 ): Promise<Response> => {
     const token = localStorage.getItem("accessToken");
+    const isSwitchRequest = url.endsWith("/auth/switch-role");
+    const originalWorkspace = workspaceKey();
+    const assertCurrentWorkspace = () => {
+        if (!isSwitchRequest && (isSwitchingRole || workspaceKey() !== originalWorkspace)) {
+            throw new Error("Your workspace changed. Please try again.");
+        }
+    };
     const canRetryTransientFetch = isSafeRequestMethod(options.method);
 
     // Add authorization header if token exists
@@ -117,25 +139,31 @@ export const apiFetch = async (
         headers,
     }, canRetryTransientFetch);
 
+    assertCurrentWorkspace();
+
     // If we get a 401, try to refresh the token
     if (response.status === 401) {
         if (isRefreshing) {
             // If already refreshing, wait for the new token
             return new Promise((resolve, reject) => {
                 failedQueue.push({ resolve, reject });
-            }).then((newToken) => {
+            }).then(async (newToken) => {
+                assertCurrentWorkspace();
                 // Retry the request with new token
-                return fetchWithTransientRetry(url, {
+                const retriedResponse = await fetchWithTransientRetry(url, {
                     ...options,
                     headers: {
                         ...options.headers,
                         Authorization: `Bearer ${newToken}`,
                     },
                 }, canRetryTransientFetch);
+                assertCurrentWorkspace();
+                return retriedResponse;
             });
         }
 
         isRefreshing = true;
+        const refreshAttemptToken = localStorage.getItem("refreshToken");
 
         try {
             const newToken = await refreshAccessToken();
@@ -154,6 +182,11 @@ export const apiFetch = async (
             processQueue(error as Error, null);
             isRefreshing = false;
 
+            if (localStorage.getItem("refreshToken") && localStorage.getItem("refreshToken") !== refreshAttemptToken) {
+                window.location.replace("/dashboard");
+                throw error;
+            }
+
             // Clear tokens and redirect to login
             clearLocalAuth();
             window.location.href = "/login";
@@ -162,19 +195,43 @@ export const apiFetch = async (
         }
     }
 
+    assertCurrentWorkspace();
     if (response.status === 403) {
         const errorData = await response.clone().json().catch(() => ({}));
         const detail =
             errorData && typeof errorData === "object" && "detail" in errorData
                 ? String((errorData as { detail?: unknown }).detail || "")
                 : "";
-        if (detail.toLowerCase().includes("user account is inactive")) {
+        if (detail.toLowerCase().includes("user account is inactive") || detail.includes("Active role is no longer assigned")) {
             clearLocalAuth();
             window.location.href = "/login";
         }
     }
 
     return response;
+};
+
+export const switchActiveRole = async (role: "instructor" | "mentor"): Promise<void> => {
+    if (isSwitchingRole) return;
+    isSwitchingRole = true;
+    try {
+        // Finish any refresh before rotating tokens for the new workspace.
+        while (isRefreshing) await delay(25);
+        const response = await apiFetch(buildApiUrl("/auth/switch-role"), {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ role }),
+        });
+        if (!response.ok) throw new Error(await readApiError(response, "Could not switch workspace"));
+        const { data } = await response.json();
+        localStorage.setItem("accessToken", data.access_token);
+        localStorage.setItem("refreshToken", data.refresh_token);
+        localStorage.setItem("userData", JSON.stringify(data.user));
+        // A full navigation discards role-sensitive SWR caches and in-flight UI state.
+        window.location.assign("/dashboard");
+    } catch (error) {
+        isSwitchingRole = false;
+        throw error;
+    }
 };
 
 export const buildApiUrl = (

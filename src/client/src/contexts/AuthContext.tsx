@@ -23,6 +23,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [isInitialized, setIsInitialized] = useState(false);
 
     useEffect(() => {
+        // Tokens are shared between tabs. Reload the workspace when another tab
+        // switches roles so its navigation, drafts and caches cannot stay stale.
+        const syncWorkspace = (event: StorageEvent) => {
+            if (event.key !== "userData") return;
+            if (!event.newValue) {
+                window.location.replace("/login");
+                return;
+            }
+            try {
+                const previous = event.oldValue ? JSON.parse(event.oldValue) : null;
+                const next = JSON.parse(event.newValue);
+                if (previous?.role !== next?.role || previous?.user_id !== next?.user_id) {
+                    window.location.replace("/dashboard");
+                }
+            } catch {
+                window.location.replace("/login");
+            }
+        };
+        window.addEventListener("storage", syncWorkspace);
+        return () => window.removeEventListener("storage", syncWorkspace);
+    }, []);
+
+    useEffect(() => {
         // Check if user has valid token on mount
         const token = localStorage.getItem("accessToken");
         if (token) {

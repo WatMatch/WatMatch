@@ -3,6 +3,7 @@ from typing import Optional, Dict, Any
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 import os
+from uuid import uuid4
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -41,7 +42,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     else:
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
-    to_encode.update({"exp": expire, "type": "access"})
+    to_encode.update({"exp": expire, "type": "access", "jti": str(uuid4())})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -51,7 +52,7 @@ def create_refresh_token(data: Dict[str, Any]) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
 
-    to_encode.update({"exp": expire, "type": "refresh"})
+    to_encode.update({"exp": expire, "type": "refresh", "jti": str(uuid4())})
     encoded_jwt = jwt.encode(
         to_encode, REFRESH_SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt

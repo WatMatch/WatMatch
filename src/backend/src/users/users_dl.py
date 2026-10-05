@@ -110,7 +110,7 @@ class UsersDataLogic:
         try:
             query = (
                 supabase.table(self.table_name)
-                .select("user_id,email,role,course_fk,home_department_fk,active_team_fk,active,created_at", count="exact")
+                .select("user_id,email,role,course_fk,home_department_fk,active_team_fk,active,created_at,user_roles!user_roles_user_fk_fkey(role)", count="exact")
                 .order("role")
                 .order("email")
             )
@@ -119,6 +119,8 @@ class UsersDataLogic:
                 query = query.range(start, start + page_size - 1)
             response = query.execute()
             users = response.data or []
+            for user in users:
+                user["assigned_roles"] = sorted(row["role"] for row in user.pop("user_roles", []))
             total = int(response.count or len(users))
 
             course_ids = sorted({

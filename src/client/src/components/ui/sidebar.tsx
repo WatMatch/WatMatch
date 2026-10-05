@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { RoleSwitcher } from "@/components/RoleSwitcher";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -382,14 +383,15 @@ export default function Sidebar({ className, onNavigate }: SidebarProps) {
             : isExternalPartner
               ? "External partner"
               : isMentor
-                ? "Mentor"
+                ? "University Mentor"
                 : isInstructor
                   ? "Instructor"
                   : isStudent
                     ? "Student"
                     : "WatMatch user";
     const contextLabel =
-        (isExternalPartner ? partnerOrganization : null) || user?.course?.code || roleLabel;
+        (isExternalPartner ? partnerOrganization : null) ||
+        ((isInstructor || isStudent) ? user?.course?.code : null) || roleLabel;
 
     return (
         <aside
@@ -441,6 +443,7 @@ export default function Sidebar({ className, onNavigate }: SidebarProps) {
                 className="relative border-t border-slate-200/90 p-3"
                 ref={menuRef}
             >
+                <RoleSwitcher />
                 {user?.email && (
                     <>
                         <button

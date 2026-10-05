@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query, Depends
 import logging
 from pydantic import BaseModel, Field
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Literal
 
 from .users_bl import UsersBusinessLogic
 from ..auth.dependencies import get_current_user
@@ -870,3 +870,33 @@ async def get_user_by_id(
     except Exception as e:
         logger.exception("Instructor team creation failed")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class AdminSetUserRolesRequest(BaseModel):
+    roles: list[Literal["instructor", "mentor"]] = Field(..., min_length=1, max_length=2)
+    reason: str = Field(..., min_length=1, max_length=2000)
+    course_id: Optional[int] = None
+    home_department_id: Optional[int] = None
+
+
+@router.put("/admin/users/{user_id}/roles")
+async def set_user_roles_for_admin(
+    user_id: int, request: AdminSetUserRolesRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(current_user)
+    try:
+        result = call_json_rpc("watmatch_admin_set_user_roles", {
+            "p_user_id": user_id, "p_roles": request.roles,
+            "p_actor_id": int(current_user["user_id"]), "p_reason": request.reason,
+            "p_course_id": request.course_id, "p_home_department_id": request.home_department_id,
+        })
+        if not result.get("success"):
+            message = result.get("message", "Role update failed.")
+            raise HTTPException(status_code=_status_for_message(message), detail=message)
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        message = str(exc)
+        raise HTTPException(status_code=_status_for_message(message), detail=message) from exc
