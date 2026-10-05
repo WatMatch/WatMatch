@@ -1,5 +1,6 @@
 "use client";
 
+import { ManageUserRolesDialog } from "./ManageUserRolesDialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Loader2,
@@ -75,7 +76,7 @@ const ROLE_OPTIONS: Array<{ value: ManagedRole; label: string }> = [
     { value: "academic_advisor", label: "Academic Advisor" },
     { value: "enrollment_operator", label: "Enrollment Operator" },
     { value: "external_partner", label: "External Partner" },
-    { value: "mentor", label: "Mentor" },
+    { value: "mentor", label: "University Mentor" },
 ];
 
 function formatRoleLabel(role: string): string {
@@ -170,6 +171,7 @@ export function AdminEnrollmentSection() {
     const [statusTarget, setStatusTarget] = useState<AdminUserEntry | null>(null);
     const [statusReason, setStatusReason] = useState("");
 
+    const [rolesTarget, setRolesTarget] = useState<AdminUserEntry | null>(null);
     const [editTarget, setEditTarget] = useState<AdminUserEntry | null>(null);
     const [editEmail, setEditEmail] = useState("");
     const [editRole, setEditRole] = useState<ManagedRole>("student");
@@ -254,14 +256,14 @@ export function AdminEnrollmentSection() {
                 !query ||
                 [
                     user.email,
-                    formatRoleLabel(user.role),
+                    ...(user.assigned_roles || [user.role]).map(formatRoleLabel),
                     user.course?.code,
                     user.course?.name,
                     user.home_department?.name,
                 ]
                     .filter(Boolean)
                     .some((value) => String(value).toLowerCase().includes(query));
-            const matchesRole = roleFilter === ALL || user.role === roleFilter;
+            const matchesRole = roleFilter === ALL || (user.assigned_roles || [user.role]).includes(roleFilter);
             const matchesStatus =
                 statusFilter === ALL ||
                 (statusFilter === "active" ? user.active : !user.active);
@@ -707,9 +709,9 @@ export function AdminEnrollmentSection() {
                                                     {user.email}
                                                 </span>
                                                 <span className="mt-1 flex flex-wrap items-center gap-1.5">
-                                                    <StatusBadge tone={roleTone(user.role)}>
-                                                        {formatRoleLabel(user.role)}
-                                                    </StatusBadge>
+                                                    {(user.assigned_roles || [user.role]).map(role => (
+                                                        <StatusBadge key={role} tone={roleTone(role)}>{formatRoleLabel(role)}</StatusBadge>
+                                                    ))}
                                                     <StatusBadge
                                                         tone={user.active ? "success" : "danger"}
                                                     >
@@ -794,6 +796,9 @@ export function AdminEnrollmentSection() {
                                                 />
                                                 Edit account
                                             </Button>
+                                            {["instructor", "mentor"].includes(user.role) && (
+                                                <Button variant="outline" size="sm" onClick={() => setRolesTarget(user)}>Manage roles</Button>
+                                            )}
                                         </div>
                                         <OverflowMenu
                                             label={`More actions for ${user.email}`}
@@ -1323,6 +1328,9 @@ export function AdminEnrollmentSection() {
                 </DialogContent>
             </Dialog>
 
+            {rolesTarget && <ManageUserRolesDialog key={rolesTarget.user_id} user={rolesTarget} courses={courses} departments={departments}
+                onClose={() => setRolesTarget(null)} onSaved={() => { setRolesTarget(null); setNotice("Roles updated. The user can switch workspaces after refreshing or signing in."); void loadData(); }} />}
+
             <Dialog
                 open={Boolean(editTarget)}
                 onOpenChange={(open) => {
@@ -1393,8 +1401,8 @@ export function AdminEnrollmentSection() {
                                         }
                                     }}
                                     disabled={Boolean(
-                                        editTarget?.role === "student" &&
-                                            editTarget.active_team_fk
+                                        (editTarget?.assigned_roles?.length || 0) > 1 ||
+                                        (editTarget?.role === "student" && editTarget.active_team_fk)
                                     )}
                                 >
                                     <SelectTrigger id="edit-user-role">

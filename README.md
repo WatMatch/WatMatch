@@ -110,6 +110,14 @@ Apply `src/backend/db/schema.sql` first. Apply `src/backend/db/demo_seed.sql` on
 
 The seed requires the historical capstone archive and clears mutable workflow data before rebuilding the demo state. Do not run it against a shared or production database.
 
+## Multiple roles
+
+Admins can assign Instructor and University Mentor to one existing account. Users
+with both roles switch workspaces from the sidebar; students remain Student only.
+Apply the incremental database migration before starting the updated backend. See
+[role switching setup and testing](src/backend/db/README.md) for migration, manual
+acceptance steps, and a completely isolated local preview.
+
 ## Validation
 
 Backend:

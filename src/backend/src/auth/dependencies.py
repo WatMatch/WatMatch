@@ -1,6 +1,7 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from .jwt_utils import verify_access_token
+from .roles import assigned_roles, resolve_active_role
 from typing import Dict, Any
 from ..config.database import supabase
 
@@ -56,6 +57,9 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             detail="User account is inactive",
         )
 
+    roles = assigned_roles(user["user_id"])
+    active_role = resolve_active_role(user, roles, payload.get("active_role"))
+
     course = None
     course_active = None
     if user.get("course_fk") is not None:
@@ -83,7 +87,10 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     return {
         "user_id": user.get("user_id"),
         "email": user.get("email"),
-        "role": user.get("role"),
+        "role": active_role,
+        "active_role": active_role,
+        "default_role": user["role"],
+        "assigned_roles": roles,
         "course_fk": user.get("course_fk"),
         "home_department_fk": user.get("home_department_fk"),
         "home_department_id": user.get("home_department_fk"),

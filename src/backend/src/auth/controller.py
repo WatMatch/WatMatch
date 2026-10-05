@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 import logging
 from pydantic import BaseModel, Field
-from typing import Dict, Any
+from typing import Dict, Any, Literal
 from .auth_bl import AuthBusinessLogic
 from .dependencies import get_current_user
 
@@ -160,3 +160,12 @@ async def get_current_user_info(current_user: Dict[str, Any] = Depends(get_curre
         "success": True,
         "data": current_user
     }
+
+
+class SwitchRoleRequest(BaseModel):
+    role: Literal["instructor", "mentor"]
+
+
+@router.post("/switch-role")
+async def switch_role(request: SwitchRoleRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
+    return auth_business.switch_role(int(current_user["user_id"]), current_user["role"], request.role)
