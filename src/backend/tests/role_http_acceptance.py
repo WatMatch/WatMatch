@@ -3,9 +3,10 @@
 Run explicitly after db/role_preview_fixture.sql; not included in unit discovery.
 """
 from fastapi.testclient import TestClient
-from role_test_app import app, supabase
-from src.auth.jwt_utils import create_access_token
+from role_test_app import app, identity_token, use_fixture_identity
+import jwt
 
+use_fixture_identity.start()
 client = TestClient(app)
 checks = 0
 
@@ -18,9 +19,10 @@ def check(value, label):
 
 
 def login(email):
-    response = client.post('/api/v1/auth/login', json={'email': email})
-    assert response.status_code == 200, response.text
-    return response.json()['data']
+    token = identity_token(email)
+    response = client.get('/api/v1/auth/me', headers={'Authorization': 'Bearer ' + token})
+    assert response.status_code == 200, response.status_code
+    return {'access_token': token, 'user': response.json()['data']}
 
 
 def headers(session):
@@ -30,7 +32,9 @@ def headers(session):
 def switch(session, role):
     response = client.post('/api/v1/auth/switch-role', headers=headers(session), json={'role': role})
     assert response.status_code == 200, response.text
-    return response.json()['data']
+    account = client.get('/api/v1/auth/me', headers=headers(session))
+    assert account.status_code == 200
+    return {'access_token': session['access_token'], 'user': account.json()['data']}
 
 
 def grant(admin, user_id, roles, **extra):
@@ -38,10 +42,10 @@ def grant(admin, user_id, roles, **extra):
                       json={'roles': roles, 'reason': 'Local acceptance test', **extra})
 
 
-admin = login('admin@uwaterloo.ca')
-instructor = login('instructor.se@uwaterloo.ca')
-mentor = login('mentor.lee@uwaterloo.ca')
-student = login('student.test@uwaterloo.ca')
+admin = login('wmtrial.admin@uwaterloo.ca')
+instructor = login('wmtrial.instructor.se@uwaterloo.ca')
+mentor = login('wmtrial.mentor.lee@uwaterloo.ca')
+student = login('wmtrial.student.test@uwaterloo.ca')
 i = instructor['user']['user_id']
 m = mentor['user']['user_id']
 s = student['user']['user_id']
@@ -56,7 +60,7 @@ check(grant(admin, i, ['instructor', 'mentor']).status_code == 200, 'admin grant
 listed = client.get('/api/v1/users/admin/users', headers=headers(admin))
 check(listed.status_code == 200, 'admin account list loads role relationship without ambiguity')
 check(next(u for u in listed.json()['data'] if u['user_id'] == i)['assigned_roles'] == ['instructor', 'mentor'], 'admin sees both memberships')
-instructor = login('instructor.se@uwaterloo.ca')
+instructor = login('wmtrial.instructor.se@uwaterloo.ca')
 mentoring = switch(instructor, 'mentor')
 check(mentoring['user']['user_id'] == i and mentoring['user']['role'] == 'mentor', 'instructor switches to mentor on same identity')
 check(mentoring['user']['course_fk'] == course_id, 'course assignment survives switching')
@@ -65,16 +69,19 @@ check(client.get('/api/v1/capstones/mentor/dashboard', headers=headers(mentoring
 review_path = next(route.path for route in app.routes if getattr(route, 'name', '') == 'get_capstones_for_review')
 check(client.get(review_path, headers=headers(mentoring)).status_code == 403, 'mentor workspace cannot use instructor review queue')
 check(client.get('/api/v1/users/admin/users', headers=headers(mentoring)).status_code == 403, 'mentor workspace cannot use admin tools')
-refreshed = client.post('/api/v1/auth/refresh', json={'refresh_token': mentoring['refresh_token']})
-check(refreshed.status_code == 200 and refreshed.json()['data']['user']['role'] == 'mentor', 'refresh preserves active mentor role')
-mentoring = refreshed.json()['data']
-check(client.post('/api/v1/auth/refresh', json={'refresh_token': instructor['refresh_token']}).status_code == 401, 'switch rotates and invalidates previous refresh token')
+check(client.get('/api/v1/auth/me', headers=headers(instructor)).json()['data']['active_role'] == 'mentor',
+      'another tab with the same Clerk session sees the selected role')
+stale = client.get('/api/v1/auth/me', headers={**headers(instructor), 'X-WatMatch-Workspace': 'instructor'})
+check(stale.status_code == 409 and stale.headers.get('X-WatMatch-Workspace-Changed') == '1',
+      'stale workspace requests stop before the action')
+other_session = login('wmtrial.instructor.se@uwaterloo.ca')
+check(other_session['user']['active_role'] == 'instructor', 'independent Clerk session keeps the default role')
 teaching = switch(mentoring, 'instructor')
 check(client.get(review_path, headers=headers(teaching)).status_code == 200, 'switching back restores instructor review queue')
 check(client.get('/api/v1/capstones/mentor/dashboard', headers=headers(teaching)).status_code == 403, 'instructor workspace must switch before mentor actions')
-check(teaching['access_token'] != instructor['access_token'], 'same-second token issuance remains unique')
+check(teaching['access_token'] == instructor['access_token'], 'switching roles keeps the verified identity session')
 check(grant(admin, m, ['instructor', 'mentor'], course_id=course_id, home_department_id=department_id).status_code == 200, 'existing mentor can gain instructor role')
-mentor = login('mentor.lee@uwaterloo.ca')
+mentor = login('wmtrial.mentor.lee@uwaterloo.ca')
 mentor = switch(mentor, 'mentor')
 mentor = switch(mentor, 'instructor')
 check(mentor['user']['user_id'] == m and mentor['user']['role'] == 'instructor', 'original mentor switches in both directions')
@@ -84,8 +91,11 @@ check(client.get('/api/v1/auth/me', headers=headers(mentor)).status_code == 403,
 mentoring = switch(teaching, 'mentor')
 check(grant(admin, i, ['instructor']).status_code == 200, 'admin revokes mentor')
 check(client.get('/api/v1/auth/me', headers=headers(mentoring)).status_code == 403, 'revoked mentor token stops working immediately')
-check(client.post('/api/v1/auth/refresh', json={'refresh_token': mentoring['refresh_token']}).status_code == 401, 'revoked role cannot be refreshed')
-forged = create_access_token({'user_id': s, 'active_role': 'mentor', 'role': 'mentor'})
-check(client.get('/api/v1/auth/me', headers={'Authorization': 'Bearer ' + forged}).status_code == 403, 'database membership is checked even for a signed role claim')
+check(client.post('/api/v1/auth/refresh', json={'refresh_token': 'synthetic'}).status_code == 410, 'legacy refresh is retired')
+forged = jwt.encode({'user_id': s, 'active_role': 'mentor'}, 'synthetic-test-only-secret-that-is-long-enough', algorithm='HS256')
+check(client.get('/api/v1/auth/me', headers={'Authorization': 'Bearer ' + forged}).status_code == 401, 'old-style app tokens cannot authorize a role')
 check(grant(admin, i, ['instructor', 'mentor']).status_code == 200, 'restore dual-role instructor for manual preview')
 print(f'{checks} HTTP/database acceptance checks passed.')
+
+client.close()
+use_fixture_identity.stop()

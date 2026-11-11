@@ -2,237 +2,117 @@ export interface FetchOptions extends RequestInit {
     headers?: Record<string, string>;
 }
 
-let isRefreshing = false;
-let isSwitchingRole = false;
-let failedQueue: Array<{
-    resolve: (token: string) => void;
-    reject: (error: Error) => void;
-}> = [];
+type SessionTokenGetter = () => Promise<string | null>;
+let sessionTokenGetter: SessionTokenGetter | null = null;
+let sessionId: string | null = null;
+let expectedWorkspace: string | null = null;
+let workspaceVersion = 0;
 
-const RAW_API_BASE_URL =
-    process.env.NEXT_PUBLIC_API_URL || "/api/v1";
+export function rememberVerifiedWorkspace(role: string) {
+    expectedWorkspace = role;
+}
+
+function reloadWorkspace() {
+    workspaceVersion++;
+    sessionTokenGetter = null;
+    window.location.replace("/dashboard");
+}
+
+export function listenForWorkspaceChanges(id: string) {
+    const key = "watmatch.workspace." + id;
+    const onStorage = (event: StorageEvent) => {
+        if (event.key === key && event.newValue) reloadWorkspace();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+}
+
+/** Register only after Clerk has loaded. Cleanup cannot remove a newer session. */
+export const registerSessionTokenGetter = (getter: SessionTokenGetter, id: string | null = null) => {
+    if (id !== sessionId) {
+        sessionId = id;
+        expectedWorkspace = null;
+        workspaceVersion++;
+    }
+    sessionTokenGetter = getter;
+    return () => {
+        if (sessionTokenGetter === getter) sessionTokenGetter = null;
+    };
+};
+
+const RAW_API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
 const API_BASE_URL = RAW_API_BASE_URL.replace(/\/$/, "");
 const API_ORIGIN_URL = API_BASE_URL.replace(/\/api\/v1$/, "");
-const TRANSIENT_FETCH_RETRY_DELAY_MS = 250;
-
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const normalizeApiUrl = (base: string): string => {
-    if (base.startsWith("http")) {
-        return base;
-    }
-    if (base.startsWith("/api/v1")) {
-        return `${API_ORIGIN_URL}${base}`;
-    }
+    if (/^https?:\/\//i.test(base)) return base;
+    if (base.startsWith("/api/v1")) return `${API_ORIGIN_URL}${base}`;
     return `${API_BASE_URL}${base.startsWith("/") ? base : `/${base}`}`;
 };
 
-const processQueue = (error: Error | null, token: string | null = null) => {
-    failedQueue.forEach((prom) => {
-        if (error) {
-            prom.reject(error);
-        } else if (token) {
-            prom.resolve(token);
-        }
-    });
-    failedQueue = [];
-};
+/** Resolve relative catalog keys without making them depend on a browser global. */
+export const parseApiUrl = (url: string): URL => new URL(url, "http://watmatch.invalid");
 
-const clearLocalAuth = () => {
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("refreshToken");
-    localStorage.removeItem("userData");
-};
-
-const workspaceKey = (): string => {
-    try {
-        const user = JSON.parse(localStorage.getItem("userData") || "null");
-        return `${user?.user_id || ""}:${user?.role || ""}`;
-    } catch {
-        return "";
+const trustedApiUrl = (url: string): URL => {
+    const browserOrigin = typeof window === "undefined" ? "http://watmatch.invalid" : window.location.origin;
+    const base = new URL(API_BASE_URL, browserOrigin);
+    const target = new URL(url, browserOrigin);
+    const basePath = base.pathname.replace(/\/$/, "");
+    if (!/^https?:$/.test(target.protocol) || target.username || target.password ||
+        target.origin !== base.origin ||
+        !(target.pathname === basePath || target.pathname.startsWith(`${basePath}/`))) {
+        throw new Error("Refusing to send a session token outside the configured WatMatch API.");
     }
-};
-
-const isSafeRequestMethod = (method?: string) => {
-    const normalized = (method || "GET").toUpperCase();
-    return normalized === "GET" || normalized === "HEAD";
-};
-
-const isTransientFetchError = (error: unknown) =>
-    error instanceof TypeError &&
-    /failed to fetch|networkerror|load failed/i.test(error.message);
-
-const fetchWithTransientRetry = async (
-    url: string,
-    options: RequestInit,
-    canRetry: boolean
-) => {
-    try {
-        return await fetch(url, options);
-    } catch (error) {
-        if (!canRetry || !isTransientFetchError(error)) {
-            throw error;
-        }
-        await delay(TRANSIENT_FETCH_RETRY_DELAY_MS);
-        return fetch(url, options);
-    }
-};
-
-const refreshAccessToken = async (): Promise<string> => {
-    const refreshToken = localStorage.getItem("refreshToken");
-    if (!refreshToken) {
-        throw new Error("No refresh token available");
-    }
-
-    const response = await fetch(buildApiUrl("/api/v1/auth/refresh"), {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-    });
-
-    if (!response.ok) {
-        throw new Error("Failed to refresh token");
-    }
-
-    const data = await response.json();
-    // A login or role switch in another tab supersedes this refresh.
-    if (localStorage.getItem("refreshToken") !== refreshToken) {
-        throw new Error("Your session changed. Please refresh this page.");
-    }
-    const newAccessToken = data.data.access_token;
-    const newRefreshToken = data.data.refresh_token;
-
-    localStorage.setItem("accessToken", newAccessToken);
-    if (newRefreshToken) {
-        localStorage.setItem("refreshToken", newRefreshToken);
-    }
-    if (data.data.user) localStorage.setItem("userData", JSON.stringify(data.data.user));
-
-    return newAccessToken;
+    return target;
 };
 
 export const apiFetch = async (
     url: string,
     options: FetchOptions = {}
 ): Promise<Response> => {
-    const token = localStorage.getItem("accessToken");
-    const isSwitchRequest = url.endsWith("/auth/switch-role");
-    const originalWorkspace = workspaceKey();
-    const assertCurrentWorkspace = () => {
-        if (!isSwitchRequest && (isSwitchingRole || workspaceKey() !== originalWorkspace)) {
-            throw new Error("Your workspace changed. Please try again.");
-        }
-    };
-    const canRetryTransientFetch = isSafeRequestMethod(options.method);
-
-    // Add authorization header if token exists
-    const headers = {
-        ...options.headers,
-        ...(token && { Authorization: `Bearer ${token}` }),
-    };
-
-    // Make the initial request
-    let response = await fetchWithTransientRetry(url, {
-        ...options,
-        headers,
-    }, canRetryTransientFetch);
-
-    assertCurrentWorkspace();
-
-    // If we get a 401, try to refresh the token
-    if (response.status === 401) {
-        if (isRefreshing) {
-            // If already refreshing, wait for the new token
-            return new Promise((resolve, reject) => {
-                failedQueue.push({ resolve, reject });
-            }).then(async (newToken) => {
-                assertCurrentWorkspace();
-                // Retry the request with new token
-                const retriedResponse = await fetchWithTransientRetry(url, {
-                    ...options,
-                    headers: {
-                        ...options.headers,
-                        Authorization: `Bearer ${newToken}`,
-                    },
-                }, canRetryTransientFetch);
-                assertCurrentWorkspace();
-                return retriedResponse;
-            });
-        }
-
-        isRefreshing = true;
-        const refreshAttemptToken = localStorage.getItem("refreshToken");
-
-        try {
-            const newToken = await refreshAccessToken();
-            processQueue(null, newToken);
-            isRefreshing = false;
-
-            // Retry the original request with new token
-            response = await fetchWithTransientRetry(url, {
-                ...options,
-                headers: {
-                    ...options.headers,
-                    Authorization: `Bearer ${newToken}`,
-                },
-            }, canRetryTransientFetch);
-        } catch (error) {
-            processQueue(error as Error, null);
-            isRefreshing = false;
-
-            if (localStorage.getItem("refreshToken") && localStorage.getItem("refreshToken") !== refreshAttemptToken) {
-                window.location.replace("/dashboard");
-                throw error;
-            }
-
-            // Clear tokens and redirect to login
-            clearLocalAuth();
-            window.location.href = "/login";
-
-            throw error;
-        }
+    // Validate before asking Clerk for a token. Never forward tokens to arbitrary URLs.
+    trustedApiUrl(url);
+    const getter = sessionTokenGetter;
+    const version = workspaceVersion;
+    if (!getter) throw new Error("Sign-in is not ready. Please wait and try again.");
+    const token = await getter();
+    // A sign-out/account switch while getToken was pending invalidates this request.
+    if (getter !== sessionTokenGetter || version !== workspaceVersion) throw new Error("Your session changed. Please try again.");
+    const headers = new Headers(options.headers);
+    headers.delete("Authorization");
+    headers.delete("X-WatMatch-Workspace");
+    if (expectedWorkspace) headers.set("X-WatMatch-Workspace", expectedWorkspace);
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    // Clerk renews its own tokens. Do not replay requests after a 401, especially writes.
+    // Redirects cannot forward credentials outside the checked API path.
+    const response = await fetch(url, { ...options, headers, credentials: "omit", redirect: "error" });
+    if (getter !== sessionTokenGetter || version !== workspaceVersion) throw new Error("Your workspace changed. Please try again.");
+    if (response.status === 409 && response.headers.get("X-WatMatch-Workspace-Changed") === "1") {
+        reloadWorkspace();
+        throw new Error("Your workspace changed in another tab.");
     }
-
-    assertCurrentWorkspace();
-    if (response.status === 403) {
-        const errorData = await response.clone().json().catch(() => ({}));
-        const detail =
-            errorData && typeof errorData === "object" && "detail" in errorData
-                ? String((errorData as { detail?: unknown }).detail || "")
-                : "";
-        if (detail.toLowerCase().includes("user account is inactive") || detail.includes("Active role is no longer assigned")) {
-            clearLocalAuth();
-            window.location.href = "/login";
-        }
-    }
-
     return response;
 };
 
-export const switchActiveRole = async (role: "instructor" | "mentor"): Promise<void> => {
-    if (isSwitchingRole) return;
-    isSwitchingRole = true;
+export async function switchActiveRole(role: "instructor" | "mentor") {
+    const response = await apiFetch(buildApiUrl("/auth/switch-role"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+    });
+    if (!response.ok) throw new Error(await readApiError(response, "Could not switch workspace"));
+    const data = await response.json();
+    if (data?.data?.active_role !== role) throw new Error("Could not confirm the selected workspace.");
+    // The server stores the selection. This notice only tells other tabs to re-fetch.
     try {
-        // Finish any refresh before rotating tokens for the new workspace.
-        while (isRefreshing) await delay(25);
-        const response = await apiFetch(buildApiUrl("/auth/switch-role"), {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ role }),
-        });
-        if (!response.ok) throw new Error(await readApiError(response, "Could not switch workspace"));
-        const { data } = await response.json();
-        localStorage.setItem("accessToken", data.access_token);
-        localStorage.setItem("refreshToken", data.refresh_token);
-        localStorage.setItem("userData", JSON.stringify(data.user));
-        // A full navigation discards role-sensitive SWR caches and in-flight UI state.
-        window.location.assign("/dashboard");
-    } catch (error) {
-        isSwitchingRole = false;
-        throw error;
+        const key = "watmatch.workspace." + sessionId;
+        localStorage.setItem(key, "changed");
+        localStorage.removeItem(key);
+    } catch {
+        // A stale tab still gets a conflict from the API before a workspace action.
     }
-};
+    reloadWorkspace();
+}
 
 export const buildApiUrl = (
     base: string,

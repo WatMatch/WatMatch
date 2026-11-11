@@ -213,7 +213,7 @@ export async function fetchCapstoneTeamContext(
  * Fetch all teams
  */
 export async function fetchTeams(): Promise<unknown> {
-    const response = await apiFetch(buildApiUrl("/api/v1/teams"));
+    const response = await apiFetch(buildApiUrl("/api/v1/teams/"));
 
     if (!response.ok) {
         throw new Error(await errorMessage(response, "Failed to fetch teams"));
@@ -324,7 +324,7 @@ export async function inviteTeammate(
     teamId: number,
     email: string
 ): Promise<void> {
-    const response = await apiFetch(buildApiUrl("/api/v1/invites"), {
+    const response = await apiFetch(buildApiUrl("/api/v1/invites/"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

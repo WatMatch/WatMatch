@@ -34,7 +34,7 @@ A course such as `SE 490` is stored separately from a specific term offering. Th
 
 ## Local Development
 
-Create `src/backend/.env` with the required Supabase, JWT, and CORS settings. Never commit credentials.
+Create `src/backend/.env` with the Supabase service key and Clerk verification settings listed in [the backend setup guide](src/backend/README.md). Configure the same Clerk instance in [the client](src/client/README.md). Use the exact browser origin for Clerk and CORS. Keep server credentials outside Git.
 
 Backend:
 
@@ -77,7 +77,8 @@ Configure these environment variables in Vercel for each deployment environment:
 
 - `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (the existing backend expects a
   service-role JWT).
-- `JWT_SECRET_KEY` and `JWT_REFRESH_SECRET_KEY`, with different secret values.
+- `CLERK_ISSUER`, `CLERK_SECRET_KEY` and `CLERK_AUTHORIZED_PARTIES` on the backend. Set the authorized party to the exact browser origin.
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` for the client build and the matching server-only `CLERK_SECRET_KEY` for the Next.js server.
 - `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USER`, `EMAIL_PASSWORD`, and `FROM_EMAIL` if
   email delivery is needed.
 - `NEXT_PUBLIC_API_URL=/api/v1`, or leave it unset to use that default. Remove
@@ -101,8 +102,7 @@ env files. The backend loads its existing `src/backend/.env`. Check `/login`
 and `/api/v1/users/me/interests` on the URL printed by Vercel; an authentication response
 from a protected API endpoint is expected when no token is supplied.
 
-Login currently accepts a known email without verifying ownership. This remains
-a prototype limitation; production authentication is a separate task.
+Clerk verifies the session and primary email. The backend checks the account in WatMatch and resolves the active workspace from its database memberships. An unregistered identity cannot access a workspace. The earlier email-only login and refresh endpoints return HTTP 410. Waterloo single sign-on requires a separately configured identity provider.
 
 ## Database
 
