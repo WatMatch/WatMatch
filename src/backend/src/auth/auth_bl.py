@@ -172,8 +172,8 @@ class AuthBusinessLogic:
             # Store new refresh token (token rotation)
             new_token_hash = hashlib.sha256(
                 new_refresh_token.encode()).hexdigest()
-            self.auth_data.update_refresh_token(
-                user["user_id"], new_token_hash)
+            if not self.auth_data.replace_current_refresh_token(user["user_id"], token_hash, new_token_hash):
+                return {"success": False, "message": "Refresh token no longer active", "data": None}
 
             return {
                 "success": True,
@@ -185,21 +185,20 @@ class AuthBusinessLogic:
                 }
             }
 
-        except Exception as e:
+        except Exception:
             return {
                 "success": False,
-                "message": f"Token refresh error: {str(e)}",
+                "message": "Could not refresh this session",
                 "data": None
             }
 
     def logout(self, refresh_token: str) -> Dict[str, Any]:
         """Logout user by invalidating refresh token"""
         try:
-            token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
-            user = self.auth_data.get_user_by_refresh_token(token_hash)
-
-            if user:
-                self.auth_data.update_refresh_token(user["user_id"], None)
+            payload = verify_refresh_token(refresh_token)
+            if payload and payload.get("user_id") is not None:
+                token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
+                self.auth_data.replace_current_refresh_token(payload["user_id"], token_hash, None)
 
             return {
                 "success": True,
@@ -207,10 +206,10 @@ class AuthBusinessLogic:
                 "data": None
             }
 
-        except Exception as e:
+        except Exception:
             return {
                 "success": False,
-                "message": f"Logout error: {str(e)}",
+                "message": "Could not revoke this session",
                 "data": None
             }
 

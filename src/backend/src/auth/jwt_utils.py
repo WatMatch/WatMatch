@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from uuid import uuid4
 from typing import Optional, Dict, Any
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -51,7 +52,7 @@ def create_refresh_token(data: Dict[str, Any]) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
 
-    to_encode.update({"exp": expire, "type": "refresh"})
+    to_encode.update({"exp": expire, "type": "refresh", "jti": str(uuid4())})
     encoded_jwt = jwt.encode(
         to_encode, REFRESH_SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt

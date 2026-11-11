@@ -20,6 +20,7 @@ interface MessageModalProps {
     onSubmit: () => void;
     isSubmitting: boolean;
     submitLabel?: string;
+    error?: string | null;
 }
 
 export function MessageModal({
@@ -32,6 +33,7 @@ export function MessageModal({
     onSubmit,
     isSubmitting,
     submitLabel = "Send Request",
+    error,
 }: MessageModalProps) {
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -50,6 +52,7 @@ export function MessageModal({
                         rows={5}
                     />
                 </div>
+                {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
                 <DialogFooter>
                     <Button
                         variant="outline"

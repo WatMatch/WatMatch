@@ -132,9 +132,9 @@ export default function Sidebar({ className, onNavigate }: SidebarProps) {
     const isActive = (path: string) =>
         pathname === path || pathname.startsWith(`${path}/`);
 
-    const handleLogout = () => {
+    const handleLogout = async () => {
+        await logout();
         clearUser();
-        logout();
         router.replace("/login");
     };
 
@@ -502,7 +502,7 @@ export default function Sidebar({ className, onNavigate }: SidebarProps) {
                                     role="menuitem"
                                     onClick={() => {
                                         setShowMenu(false);
-                                        handleLogout();
+                                        void handleLogout();
                                     }}
                                     className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-slate-700 outline-none transition-colors hover:bg-slate-100 focus-visible:bg-slate-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-400/70"
                                 >

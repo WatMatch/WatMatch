@@ -2,11 +2,8 @@ export interface FetchOptions extends RequestInit {
     headers?: Record<string, string>;
 }
 
-let isRefreshing = false;
-let failedQueue: Array<{
-    resolve: (token: string) => void;
-    reject: (error: Error) => void;
-}> = [];
+let refreshInFlight: Promise<string> | null = null;
+let logoutInFlight: Promise<boolean> | null = null;
 
 const RAW_API_BASE_URL =
     process.env.NEXT_PUBLIC_API_URL || "/api/v1";
@@ -26,22 +23,37 @@ const normalizeApiUrl = (base: string): string => {
     return `${API_BASE_URL}${base.startsWith("/") ? base : `/${base}`}`;
 };
 
-const processQueue = (error: Error | null, token: string | null = null) => {
-    failedQueue.forEach((prom) => {
-        if (error) {
-            prom.reject(error);
-        } else if (token) {
-            prom.resolve(token);
-        }
-    });
-    failedQueue = [];
-};
-
 const clearLocalAuth = () => {
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
     localStorage.removeItem("userData");
 };
+
+async function revokeCurrentRefreshToken(): Promise<boolean> {
+    // A pending rotation may issue a replacement. Revoke the latest token.
+    if (refreshInFlight) await refreshInFlight.catch(() => undefined);
+    const refreshToken = localStorage.getItem("refreshToken");
+    try {
+        if (!refreshToken) return true;
+        const response = await fetch(buildApiUrl("/api/v1/auth/logout"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ refresh_token: refreshToken }),
+            redirect: "error",
+            signal: AbortSignal.timeout(8000),
+        });
+        return response.ok && (await response.json()).success === true;
+    } catch {
+        return false;
+    } finally {
+        if (localStorage.getItem("refreshToken") === refreshToken) clearLocalAuth();
+    }
+}
+
+export function revokeBrowserSession(): Promise<boolean> {
+    logoutInFlight ??= revokeCurrentRefreshToken().finally(() => { logoutInFlight = null; });
+    return logoutInFlight;
+}
 
 const isSafeRequestMethod = (method?: string) => {
     const normalized = (method || "GET").toUpperCase();
@@ -80,6 +92,8 @@ const refreshAccessToken = async (): Promise<string> => {
             "Content-Type": "application/json",
         },
         body: JSON.stringify({ refresh_token: refreshToken }),
+        signal: AbortSignal.timeout(8000),
+        redirect: "error",
     });
 
     if (!response.ok) {
@@ -90,6 +104,9 @@ const refreshAccessToken = async (): Promise<string> => {
     const newAccessToken = data.data.access_token;
     const newRefreshToken = data.data.refresh_token;
 
+    if (localStorage.getItem("refreshToken") !== refreshToken) {
+        throw new Error("Session changed during refresh");
+    }
     localStorage.setItem("accessToken", newAccessToken);
     if (newRefreshToken) {
         localStorage.setItem("refreshToken", newRefreshToken);
@@ -119,47 +136,24 @@ export const apiFetch = async (
 
     // If we get a 401, try to refresh the token
     if (response.status === 401) {
-        if (isRefreshing) {
-            // If already refreshing, wait for the new token
-            return new Promise((resolve, reject) => {
-                failedQueue.push({ resolve, reject });
-            }).then((newToken) => {
-                // Retry the request with new token
-                return fetchWithTransientRetry(url, {
-                    ...options,
-                    headers: {
-                        ...options.headers,
-                        Authorization: `Bearer ${newToken}`,
-                    },
-                }, canRetryTransientFetch);
-            });
-        }
-
-        isRefreshing = true;
-
+        if (logoutInFlight || !token || localStorage.getItem("accessToken") !== token) return response;
+        const refreshToken = localStorage.getItem("refreshToken");
+        let newToken: string;
         try {
-            const newToken = await refreshAccessToken();
-            processQueue(null, newToken);
-            isRefreshing = false;
-
-            // Retry the original request with new token
-            response = await fetchWithTransientRetry(url, {
-                ...options,
-                headers: {
-                    ...options.headers,
-                    Authorization: `Bearer ${newToken}`,
-                },
-            }, canRetryTransientFetch);
+            refreshInFlight ??= refreshAccessToken().finally(() => { refreshInFlight = null; });
+            newToken = await refreshInFlight;
         } catch (error) {
-            processQueue(error as Error, null);
-            isRefreshing = false;
-
-            // Clear tokens and redirect to login
-            clearLocalAuth();
-            window.location.href = "/login";
-
+            if (!logoutInFlight && localStorage.getItem("refreshToken") === refreshToken) {
+                clearLocalAuth();
+                window.location.href = "/login";
+            }
             throw error;
         }
+        if (logoutInFlight || localStorage.getItem("accessToken") !== newToken) return response;
+        response = await fetchWithTransientRetry(url, {
+            ...options,
+            headers: { ...options.headers, Authorization: `Bearer ${newToken}` },
+        }, canRetryTransientFetch);
     }
 
     if (response.status === 403) {
@@ -176,6 +170,9 @@ export const apiFetch = async (
 
     return response;
 };
+
+// Catalog cache keys use a relative URL on same-origin deployments.
+export const parseApiUrl = (url: string): URL => new URL(url, "http://watmatch.invalid");
 
 export const buildApiUrl = (
     base: string,

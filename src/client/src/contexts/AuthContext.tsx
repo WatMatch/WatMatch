@@ -8,12 +8,14 @@ import {
     useCallback,
     ReactNode,
 } from "react";
+import { revokeBrowserSession } from "@/lib/api-client";
 
 interface AuthContextType {
     isLoggedIn: boolean;
     isInitialized: boolean;
     login: () => void;
-    logout: () => void;
+    logout: () => Promise<void>;
+    logoutWarning: string | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -21,6 +23,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [isInitialized, setIsInitialized] = useState(false);
+    const [logoutWarning, setLogoutWarning] = useState<string | null>(null);
 
     useEffect(() => {
         // Check if user has valid token on mount
@@ -31,18 +34,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsInitialized(true);
     }, []);
 
-    const login = useCallback(() => setIsLoggedIn(true), []);
-    const logout = useCallback(() => {
+    const login = useCallback(() => {
+        setLogoutWarning(null);
+        setIsLoggedIn(true);
+    }, []);
+    const logout = useCallback(async () => {
+        const revoked = await revokeBrowserSession();
+        setLogoutWarning(revoked ? null : "You are signed out on this browser. WatMatch could not confirm that your server session was revoked.");
         setIsLoggedIn(false);
-        // Clear tokens from localStorage
-        localStorage.removeItem("accessToken");
-        localStorage.removeItem("refreshToken");
-        localStorage.removeItem("userData");
     }, []);
 
     return (
         <AuthContext.Provider
-            value={{ isLoggedIn, isInitialized, login, logout }}
+            value={{ isLoggedIn, isInitialized, login, logout, logoutWarning }}
         >
             {children}
         </AuthContext.Provider>

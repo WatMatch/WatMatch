@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useForm } from "react-hook-form";
+import { watchProjectDraft, type StoredProjectDraft } from "./project-draft";
 import { Form } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
 import { ProgressSteps } from "@/components/ui/progress-steps";
@@ -52,12 +53,6 @@ const stepDescriptions: Record<number, string> = {
     5: "Record support, resources, partner context, and required agreements.",
     6: "Check the complete proposal before sending it for routing and review.",
 };
-
-interface StoredProjectDraft {
-    version: 1;
-    savedAt: string;
-    values: Partial<ProjectFormValues>;
-}
 
 function formatDraftTime(value: string) {
     const parsed = new Date(value);
@@ -225,9 +220,7 @@ export default function ProjectForm({
             : "Changes remain on this page until submitted."
     );
     const [hasSavedDraft, setHasSavedDraft] = React.useState(false);
-    const autosaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
-        null
-    );
+    const draftRef = React.useRef<ReturnType<typeof watchProjectDraft> | null>(null);
 
     const form = useForm<ProjectFormValues>({
         defaultValues: {
@@ -304,41 +297,27 @@ export default function ProjectForm({
     React.useEffect(() => {
         if (!draftStorageKey) return;
 
-        const subscription = form.watch((values) => {
-            if (autosaveTimerRef.current) {
-                clearTimeout(autosaveTimerRef.current);
-            }
-            setDraftMessage("Saving draft in this browser…");
-            autosaveTimerRef.current = setTimeout(() => {
-                const savedAt = new Date().toISOString();
-                const draft: StoredProjectDraft = {
-                    version: 1,
-                    savedAt,
-                    values: values as Partial<ProjectFormValues>,
-                };
-                try {
-                    window.localStorage.setItem(
-                        draftStorageKey,
-                        JSON.stringify(draft)
-                    );
+        const draft = watchProjectDraft(
+            form.watch,
+            draftStorageKey,
+            () => setDraftMessage("Saving draft in this browser…"),
+            (savedAt) => {
+                if (savedAt) {
                     setHasSavedDraft(true);
                     setDraftMessage(
                         `Draft saved in this browser at ${formatDraftTime(savedAt)}.`
                     );
-                } catch {
+                } else {
                     setDraftMessage(
                         "Draft could not be saved in this browser. Keep this page open."
                     );
                 }
-            }, 500);
-        });
-
-        return () => {
-            subscription.unsubscribe();
-            if (autosaveTimerRef.current) {
-                clearTimeout(autosaveTimerRef.current);
-                autosaveTimerRef.current = null;
             }
+        );
+        draftRef.current = draft;
+        return () => {
+            draft.dispose();
+            draftRef.current = null;
         };
     }, [draftStorageKey, form, initialValuesKey]);
 
@@ -349,35 +328,26 @@ export default function ProjectForm({
     };
 
     const handleSubmit = async (values: ProjectFormValues) => {
+        const draft = draftRef.current;
         const submitted = await onSubmit(values);
-        if (submitted !== false && draftStorageKey) {
-            if (autosaveTimerRef.current) {
-                clearTimeout(autosaveTimerRef.current);
-                autosaveTimerRef.current = null;
-            }
-            try {
-                window.localStorage.removeItem(draftStorageKey);
-            } catch {
-                // Submission already succeeded; storage cleanup must not mask it.
-            }
-            setHasSavedDraft(false);
-            setDraftMessage("Submitted; browser draft cleared.");
+        if (submitted !== false && draft) {
+            const cleared = draft.clear();
+            if (draftRef.current !== draft) return;
+            if (cleared) setHasSavedDraft(false);
+            setDraftMessage(cleared
+                ? "Submitted; browser draft cleared."
+                : "Submitted. The saved browser draft could not be cleared.");
         }
     };
 
     const clearSavedDraft = () => {
-        if (!draftStorageKey || !hasSavedDraft) return;
-        if (autosaveTimerRef.current) {
-            clearTimeout(autosaveTimerRef.current);
-            autosaveTimerRef.current = null;
-        }
-        try {
-            window.localStorage.removeItem(draftStorageKey);
+        if (!draftRef.current || !hasSavedDraft) return;
+        if (draftRef.current.clear()) {
             setHasSavedDraft(false);
             setDraftMessage(
                 "Saved browser draft cleared. Current changes remain on this page."
             );
-        } catch {
+        } else {
             setDraftMessage("The saved browser draft could not be cleared.");
         }
     };
