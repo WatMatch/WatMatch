@@ -32,6 +32,28 @@ A course such as `SE 490` is stored separately from a specific term offering. Th
 └── team.md
 ```
 
+## Milestone feedback (pilot candidate)
+
+On finalized projects, an instructor assigned to the coordinating course can record
+a dated milestone comment in **Dashboard → Teams → Milestone feedback**. A team
+member can read it in the team detail dialog. Completed projects allow reads.
+The first slice is qualitative and covers instructor feedback. Mentor and TA
+authoring and grading remain outside this slice.
+
+The feature defaults off. The API requires a verified server-side identity from
+the trusted authentication integration (`request.state.watmatch_verified_identity`).
+The main branch's email-only demo login cannot grant access. To test a combined
+candidate on isolated data, apply
+`src/backend/db/migrations/20261111_capstone_milestone_feedback.sql` to that
+database, set `WATMATCH_MILESTONE_FEEDBACK_ENABLED=true` on the API, and set
+`NEXT_PUBLIC_MILESTONE_FEEDBACK_ENABLED=true` for the client build. The full
+schema includes the same objects for fresh installations.
+
+With the Supabase roles and full schema in a disposable local Postgres
+database, run `psql -X -v ON_ERROR_STOP=1 -f src/backend/tests/milestone_feedback_trial.sql`
+against that database. The trial creates and rolls back synthetic course and team
+records. The standard backend test suite includes the API checks.
+
 ## Local Development
 
 Create `src/backend/.env` with the Supabase service key and Clerk verification settings listed in [the backend setup guide](src/backend/README.md). Configure the same Clerk instance in [the client](src/client/README.md). Use the exact browser origin for Clerk and CORS. Keep server credentials outside Git.

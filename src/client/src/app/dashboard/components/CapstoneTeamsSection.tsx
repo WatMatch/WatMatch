@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { userContext } from "@/contexts/UserContext";
+import { MilestoneFeedbackSection } from "./MilestoneFeedbackSection";
 import { Loader2, Users } from "lucide-react";
 import {
     deleteTeam,
@@ -2154,6 +2155,11 @@ export function CapstoneTeamsSection() {
                                             </Disclosure>
                                         )}
                                     </Disclosure>
+                                    {normalizedRole === "instructor" && numericCapstoneId && user?.course_fk &&
+                                        String(team.course_fk) === String(user.course_fk) && team.status === "finalized" &&
+                                        (linkedStatus === "approved" || linkedStatus === "complete") && (
+                                        <MilestoneFeedbackSection key={`${user.user_id}:${numericCapstoneId}`} capstoneId={numericCapstoneId} canWrite={linkedStatus === "approved"} />
+                                    )}
                                 </Card>
                             );
                         })}
