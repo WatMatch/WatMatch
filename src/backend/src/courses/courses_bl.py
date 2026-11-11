@@ -336,6 +336,31 @@ class CoursesBusinessLogic:
         except Exception as e:
             return {"success": False, "message": str(e), "data": None}
 
+    def advance_course_phase(
+        self, course_id: int, expected_phase: str, actor_id: int
+    ) -> Dict[str, Any]:
+        phase = (expected_phase or "").strip().lower()
+        if course_id <= 0 or phase not in MARKETPLACE_PHASES:
+            return {"success": False, "message": "Invalid course or phase.", "data": None}
+        try:
+            return self.courses_data.advance_course_phase_rpc(
+                course_id=course_id, expected_phase=phase, actor_id=actor_id
+            )
+        except Exception as e:
+            return {"success": False, "message": str(e), "data": None}
+
+    def set_instructor_phase_control(
+        self, course_id: int, enabled: bool, actor_id: int
+    ) -> Dict[str, Any]:
+        if course_id <= 0:
+            return {"success": False, "message": "Invalid course_id", "data": None}
+        try:
+            return self.courses_data.set_instructor_phase_control_rpc(
+                course_id=course_id, enabled=enabled, actor_id=actor_id
+            )
+        except Exception as e:
+            return {"success": False, "message": str(e), "data": None}
+
     def upsert_course_offering(
         self,
         offering_id: Optional[int],

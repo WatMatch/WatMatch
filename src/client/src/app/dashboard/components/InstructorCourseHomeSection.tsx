@@ -16,6 +16,7 @@ import { userContext } from "@/contexts/UserContext";
 import { fetchPendingCapstones } from "@/services/capstones.service";
 import { fetchTeams } from "@/services/teams.service";
 import { fetchInstructorCourseRoster } from "@/services/users.service";
+import { InstructorCoursePhaseCard } from "./InstructorCoursePhaseCard";
 
 type CourseHomeTab = "approvals" | "teams" | "roster" | "mentors";
 type AttentionTone = "slate" | "amber" | "blue";
@@ -275,6 +276,8 @@ export function InstructorCourseHomeSection({ onNavigate }: InstructorCourseHome
                     should wait until an admin verifies staffing and term availability.
                 </Notice>
             ) : null}
+
+            {hasAssignedCourse && <InstructorCoursePhaseCard courseId={Number(courseId)} />}
 
             {hasAssignedCourse && loading ? (
                 <div className="wm-panel flex items-center gap-2 px-4 py-5 text-sm text-slate-500">

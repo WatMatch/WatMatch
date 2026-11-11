@@ -649,6 +649,7 @@ alter table courses add column if not exists marketplace_phase_override text;
 alter table courses add column if not exists marketplace_phase_override_reason text;
 alter table courses add column if not exists marketplace_phase_override_updated_by_fk bigint;
 alter table courses add column if not exists marketplace_phase_override_updated_at timestamp with time zone;
+alter table courses add column if not exists instructor_phase_control boolean not null default false;
 alter table teams add column if not exists ecosystem_fk bigint;
 alter table team_memberships add column if not exists enrollment_course_fk bigint;
 alter table team_memberships add column if not exists enrollment_routed_by_fk bigint;
@@ -21210,6 +21211,185 @@ begin
   return new;
 end;
 $$;
+
+create or replace function watmatch_admin_set_course_instructor_phase_control(
+  p_course_id bigint,
+  p_enabled boolean,
+  p_actor_id bigint
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_actor users%rowtype;
+  v_course courses%rowtype;
+begin
+  v_actor := watmatch_assert_admin_actor(p_actor_id);
+
+  select *
+    into v_course
+  from courses
+  where course_id = p_course_id
+  for update;
+
+  if not found then
+    raise exception 'Course not found.' using errcode = 'P0002';
+  end if;
+
+  if p_enabled is true
+     and (v_course.routing_kind <> 'standard' or v_course.retired_for_routing) then
+    raise exception 'Instructor phase control is only available for active standalone (standard) courses.'
+      using errcode = '23514';
+  end if;
+
+  update courses
+  set instructor_phase_control = p_enabled is true
+  where course_id = p_course_id
+  returning * into v_course;
+
+  insert into audit_log (actor_fk, actor_role, action, entity_type, entity_id, metadata)
+  values (
+    v_actor.user_id,
+    v_actor.role,
+    'course_instructor_phase_control_set',
+    'course',
+    v_course.course_id::text,
+    jsonb_build_object('enabled', v_course.instructor_phase_control)
+  );
+
+  return jsonb_build_object(
+    'success', true,
+    'message', 'Instructor phase control updated.',
+    'data', to_jsonb(v_course)
+  );
+end;
+$$;
+
+create or replace function watmatch_instructor_advance_course_phase(
+  p_course_id bigint,
+  p_actor_id bigint,
+  p_expected_phase text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_actor users%rowtype;
+  v_course courses%rowtype;
+  v_current text;
+  v_next text;
+  v_pending integer;
+begin
+  select *
+    into v_actor
+  from users
+  where user_id = p_actor_id
+    and active is true
+    and lower(coalesce(role, '')) = 'instructor'
+    and course_fk = p_course_id;
+
+  if not found then
+    raise exception 'Only the assigned course instructor can advance this course phase.'
+      using errcode = '42501';
+  end if;
+
+  select *
+    into v_course
+  from courses
+  where course_id = p_course_id
+  for update;
+
+  if not found
+     or v_course.instructor_phase_control is not true
+     or v_course.routing_kind <> 'standard'
+     or v_course.retired_for_routing then
+    raise exception 'Instructor phase control is not enabled for this course.'
+      using errcode = '42501';
+  end if;
+
+  v_current := watmatch_effective_marketplace_phase_for_course(p_course_id);
+
+  if v_current is distinct from lower(nullif(btrim(coalesce(p_expected_phase, '')), '')) then
+    raise exception 'The course phase changed to % since this page loaded. Refresh and try again.', v_current
+      using errcode = '23514';
+  end if;
+
+  v_next := case v_current
+    when 'exploration' then 'commitment'
+    when 'commitment' then 'finalization'
+  end;
+
+  if v_next is null then
+    raise exception 'This course is already in finalization.' using errcode = '23514';
+  end if;
+
+  if v_next = 'finalization' then
+    select count(*)::integer
+      into v_pending
+    from project_commitment_requests pcr
+    where pcr.status = 'pending'
+      and watmatch_target_course_fk(pcr.capstone_fk, pcr.team_fk) = p_course_id;
+
+    if v_pending > 0 then
+      raise exception 'Resolve % pending commitment request(s) before moving this course to finalization.', v_pending
+        using errcode = '23514';
+    end if;
+  end if;
+
+  update courses
+  set marketplace_phase_override = v_next,
+      marketplace_phase_override_reason = 'Advanced by course instructor.',
+      marketplace_phase_override_updated_by_fk = v_actor.user_id,
+      marketplace_phase_override_updated_at = now()
+  where course_id = p_course_id;
+
+  insert into audit_log (actor_fk, actor_role, action, entity_type, entity_id, metadata)
+  values (
+    v_actor.user_id,
+    v_actor.role,
+    'course_phase_advanced_by_instructor',
+    'course',
+    p_course_id::text,
+    jsonb_build_object('from', v_current, 'to', v_next)
+  );
+
+  return jsonb_build_object(
+    'success', true,
+    'message', 'Course phase advanced to ' || v_next || '.',
+    'data', watmatch_marketplace_phase_context_for_course(p_course_id)
+  );
+end;
+$$;
+
+create or replace function watmatch_clear_instructor_phase_overrides_on_term_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update courses
+  set marketplace_phase_override = null,
+      marketplace_phase_override_reason = null,
+      marketplace_phase_override_updated_by_fk = null,
+      marketplace_phase_override_updated_at = null
+  where instructor_phase_control is true
+    and marketplace_phase_override is not null;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_marketplace_settings_clear_instructor_phase_overrides on marketplace_settings;
+create trigger trg_marketplace_settings_clear_instructor_phase_overrides
+after update of current_term on marketplace_settings
+for each row
+when (old.current_term is distinct from new.current_term)
+execute function watmatch_clear_instructor_phase_overrides_on_term_change();
 
 revoke execute on all functions in schema public from public;
 revoke execute on all functions in schema public from anon;
