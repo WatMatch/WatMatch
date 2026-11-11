@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from supabase import create_client, Client
 from dotenv import load_dotenv
+from .runtime_safety import protect_database_client
 
 # Load backend-local environment variables regardless of the shell cwd.
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
@@ -36,3 +37,4 @@ if _jwt_role(supabase_service_role_key) != "service_role":
     )
 
 supabase: Client = create_client(supabase_url, supabase_service_role_key)
+protect_database_client(supabase)

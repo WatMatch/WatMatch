@@ -1,4 +1,4 @@
-"""Assigned roles are durable; the signed token selects the active workspace."""
+"""Validate the current workspace against the account's durable memberships."""
 from fastapi import HTTPException
 from src.config.database import supabase
 

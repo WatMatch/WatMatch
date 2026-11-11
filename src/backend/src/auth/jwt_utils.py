@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
-from jose import JWTError, jwt
+import jwt
+from jwt import InvalidTokenError
 from passlib.context import CryptContext
 import os
-from uuid import uuid4
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -42,7 +42,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     else:
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
-    to_encode.update({"exp": expire, "type": "access", "jti": str(uuid4())})
+    to_encode.update({"exp": expire, "type": "access"})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -52,7 +52,7 @@ def create_refresh_token(data: Dict[str, Any]) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
 
-    to_encode.update({"exp": expire, "type": "refresh", "jti": str(uuid4())})
+    to_encode.update({"exp": expire, "type": "refresh"})
     encoded_jwt = jwt.encode(
         to_encode, REFRESH_SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -65,7 +65,7 @@ def verify_access_token(token: str) -> Optional[Dict[str, Any]]:
         if payload.get("type") != "access":
             return None
         return payload
-    except JWTError:
+    except InvalidTokenError:
         return None
 
 
@@ -76,5 +76,5 @@ def verify_refresh_token(token: str) -> Optional[Dict[str, Any]]:
         if payload.get("type") != "refresh":
             return None
         return payload
-    except JWTError:
+    except InvalidTokenError:
         return None

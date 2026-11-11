@@ -1,81 +1,87 @@
 "use client";
 
-import {
-    createContext,
-    useContext,
-    useState,
-    useEffect,
-    useCallback,
-    ReactNode,
-} from "react";
+import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
+import { ClerkProvider, useAuth as useClerkAuth, useClerk } from "@clerk/nextjs";
+import { SWRConfig } from "swr";
+import { listenForWorkspaceChanges, registerSessionTokenGetter } from "@/lib/api-client";
 
 interface AuthContextType {
     isLoggedIn: boolean;
     isInitialized: boolean;
-    login: () => void;
-    logout: () => void;
+    isConfigured: boolean;
+    sessionId: string | null;
+    logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-    const [isLoggedIn, setIsLoggedIn] = useState(false);
-    const [isInitialized, setIsInitialized] = useState(false);
+function clearLegacyStorage() {
+    // Old demo credentials must never restore a session or account details.
+    try {
+        for (const key of ["accessToken", "refreshToken", "userData"]) localStorage.removeItem(key);
+    } catch {
+        // Browsers can deny storage access. Authentication does not depend on it.
+    }
+}
 
+function ClerkAuthBridge({ children }: { children: ReactNode }) {
+    const { isLoaded, isSignedIn, sessionId, getToken } = useClerkAuth();
+    const { signOut } = useClerk();
+    const [readySession, setReadySession] = useState<string | null | undefined>(undefined);
+    const currentSession = sessionId ?? null;
+
+    useEffect(clearLegacyStorage, []);
     useEffect(() => {
-        // Tokens are shared between tabs. Reload the workspace when another tab
-        // switches roles so its navigation, drafts and caches cannot stay stale.
-        const syncWorkspace = (event: StorageEvent) => {
-            if (event.key !== "userData") return;
-            if (!event.newValue) {
-                window.location.replace("/login");
-                return;
-            }
-            try {
-                const previous = event.oldValue ? JSON.parse(event.oldValue) : null;
-                const next = JSON.parse(event.newValue);
-                if (previous?.role !== next?.role || previous?.user_id !== next?.user_id) {
-                    window.location.replace("/dashboard");
-                }
-            } catch {
-                window.location.replace("/login");
-            }
-        };
-        window.addEventListener("storage", syncWorkspace);
-        return () => window.removeEventListener("storage", syncWorkspace);
-    }, []);
-
+        if (!isLoaded) return;
+        const unregister = registerSessionTokenGetter(() => getToken(), currentSession);
+        setReadySession(currentSession);
+        return unregister;
+    }, [isLoaded, currentSession, getToken]);
     useEffect(() => {
-        // Check if user has valid token on mount
-        const token = localStorage.getItem("accessToken");
-        if (token) {
-            setIsLoggedIn(true);
-        }
-        setIsInitialized(true);
-    }, []);
+        if (currentSession) return listenForWorkspaceChanges(currentSession);
+    }, [currentSession]);
 
-    const login = useCallback(() => setIsLoggedIn(true), []);
-    const logout = useCallback(() => {
-        setIsLoggedIn(false);
-        // Clear tokens from localStorage
-        localStorage.removeItem("accessToken");
-        localStorage.removeItem("refreshToken");
-        localStorage.removeItem("userData");
-    }, []);
+    const logout = useCallback(async () => {
+        clearLegacyStorage();
+        await signOut({ redirectUrl: "/login" });
+    }, [signOut]);
 
     return (
-        <AuthContext.Provider
-            value={{ isLoggedIn, isInitialized, login, logout }}
-        >
+        <AuthContext.Provider value={{
+            isLoggedIn: Boolean(isSignedIn),
+            isInitialized: Boolean(isLoaded && readySession === currentSession),
+            isConfigured: true,
+            sessionId: currentSession,
+            logout,
+        }}>
+            {/* Account changes discard user state and all account-specific SWR data. */}
+            <SWRConfig key={currentSession ?? "signed-out"} value={{ provider: () => new Map() }}>
+                {children}
+            </SWRConfig>
+        </AuthContext.Provider>
+    );
+}
+
+function UnconfiguredAuth({ children }: { children: ReactNode }) {
+    useEffect(clearLegacyStorage, []);
+    return (
+        <AuthContext.Provider value={{ isLoggedIn: false, isInitialized: true, isConfigured: false, sessionId: null, logout: async () => {} }}>
             {children}
         </AuthContext.Provider>
     );
 }
 
+export function AuthProvider({ children, publishableKey }: { children: ReactNode; publishableKey?: string }) {
+    if (!publishableKey) return <UnconfiguredAuth>{children}</UnconfiguredAuth>;
+    return (
+        <ClerkProvider publishableKey={publishableKey} signInUrl="/login" signInForceRedirectUrl="/dashboard" signUpForceRedirectUrl="/dashboard">
+            <ClerkAuthBridge>{children}</ClerkAuthBridge>
+        </ClerkProvider>
+    );
+}
+
 export function useAuth() {
     const context = useContext(AuthContext);
-    if (context === undefined) {
-        throw new Error("useAuth must be used within an AuthProvider");
-    }
+    if (context === undefined) throw new Error("useAuth must be used within an AuthProvider");
     return context;
 }

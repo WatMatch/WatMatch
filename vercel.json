@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": { "deploymentEnabled": { "mid2-review-*": false } },
   "services": {
     "backend": {
       "root": "src/backend",

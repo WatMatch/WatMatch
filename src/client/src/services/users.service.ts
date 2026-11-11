@@ -389,7 +389,7 @@ export interface StudentProfile {
  * Fetch student profile
  */
 export async function fetchStudentProfile(): Promise<StudentProfile | null> {
-    const response = await apiFetch(buildApiUrl("/api/v1/student-profile"));
+    const response = await apiFetch(buildApiUrl("/api/v1/student-profile/"));
 
     if (!response.ok) {
         if (response.status === 404) {
@@ -439,7 +439,7 @@ export async function updateStudentProfile(data: {
     github_url?: string | null;
     profile_visibility?: "team_network" | "students" | "private";
 }): Promise<void> {
-    const response = await apiFetch(buildApiUrl("/api/v1/student-profile"), {
+    const response = await apiFetch(buildApiUrl("/api/v1/student-profile/"), {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
