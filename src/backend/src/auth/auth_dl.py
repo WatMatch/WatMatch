@@ -49,6 +49,15 @@ class AuthDataLogic:
             raise Exception(
                 f"Database error in update_refresh_token: {str(e)}")
 
+    def replace_current_refresh_token(self, user_id: int, current_hash: str, new_hash: Optional[str]) -> bool:
+        """Rotate or revoke only the credential that authorized this change."""
+        response = (supabase.table(self.users_table)
+                    .update({"refresh_token": new_hash})
+                    .eq("user_id", user_id)
+                    .eq("refresh_token", current_hash)
+                    .execute())
+        return bool(response.data)
+
     def get_user_by_refresh_token(self, token_hash: str) -> Optional[Dict[str, Any]]:
         """Get user by refresh token hash"""
         try:

@@ -45,11 +45,10 @@ export default function ProtectedRoute({
                 const response = await apiFetch(buildApiUrl("/api/v1/auth/me"));
                 if (!response.ok) {
                     if (response.status === 401 || response.status === 403) {
-                        if (!cancelled) {
-                            setHasValidatedSession(false);
-                            setUser(null);
-                        }
-                        logout();
+                        if (cancelled) return;
+                        setHasValidatedSession(false);
+                        await logout();
+                        setUser(null);
                         router.replace("/login");
                         return;
                     }

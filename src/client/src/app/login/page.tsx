@@ -12,7 +12,7 @@ import { buildApiUrl, readApiError } from "@/lib/api-client";
 
 export default function LoginPage() {
     const router = useRouter();
-    const { login } = useAuth();
+    const { login, logoutWarning } = useAuth();
     const { setUser } = userContext();
     const [email, setEmail] = useState("");
     const [error, setError] = useState("");
@@ -45,6 +45,9 @@ export default function LoginPage() {
                 role: user.role,
                 course_active: user.course_active,
                 course: user.course,
+                home_department_fk: user.home_department_fk,
+                home_department_id: user.home_department_id,
+                home_department: user.home_department,
             });
 
             login();
@@ -77,6 +80,7 @@ export default function LoginPage() {
                 <p className="mt-2 text-sm leading-6 text-slate-600">Enter the email associated with your WatMatch account.</p>
 
                 <form className="mt-6 space-y-5" onSubmit={handleSubmit}>
+                    {logoutWarning && <Notice tone="danger" title="Server sign-out unconfirmed">{logoutWarning}</Notice>}
                     {error && <Notice tone="danger" title="Could not log in">{error}</Notice>}
                     <div className="space-y-2">
                         <label htmlFor="email" className="text-sm font-medium text-slate-800">Email address</label>
