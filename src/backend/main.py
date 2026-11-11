@@ -10,6 +10,7 @@ from src.courses.controller import router as courses_router
 from src.departments.controller import router as departments_router
 from src.skills.controller import router as skills_router
 from src.capstones.controller import router as capstones_router
+from src.capstones.milestone_feedback import router as milestone_feedback_router
 from src.teams.controller import router as teams_router
 from src.approvals.controller import router as approvals_router
 from src.interests.controller import router as interests_router
@@ -46,6 +47,7 @@ app.include_router(courses_router, prefix="/api/v1")
 app.include_router(departments_router, prefix="/api/v1")
 app.include_router(skills_router, prefix="/api/v1")
 app.include_router(capstones_router, prefix="/api/v1")
+app.include_router(milestone_feedback_router, prefix="/api/v1")
 app.include_router(teams_router, prefix="/api/v1")
 app.include_router(approvals_router, prefix="/api/v1")
 app.include_router(interests_router, prefix="/api/v1")
