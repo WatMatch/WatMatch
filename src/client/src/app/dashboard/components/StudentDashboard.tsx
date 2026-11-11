@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { MilestoneFeedbackSection } from "./MilestoneFeedbackSection";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -2343,6 +2344,10 @@ export function StudentDashboard() {
 
                                     {/* RIGHT COLUMN: Team Members & Interested Students */}
                                     <div className="space-y-6">
+                                        {selectedTeam.project?.capstone_id && selectedTeamStatus === "finalized" &&
+                                            (selectedProjectStatus === "approved" || selectedProjectStatus === "complete") && (
+                                            <MilestoneFeedbackSection key={`${user?.user_id}:${selectedTeam.project.capstone_id}`} capstoneId={Number(selectedTeam.project.capstone_id)} canWrite={false} />
+                                        )}
                                         {/* Team Members */}
                                         <div>
                                             <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
