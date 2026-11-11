@@ -229,6 +229,8 @@ export async function updateCourse(
         routing_kind?: "standard" | "interdisciplinary";
         marketplace_phase_override?: MarketplacePhase | null;
         marketplace_phase_override_reason?: string | null;
+        instructor_phase_control?: boolean;
+        expected_phase_override_updated_at?: string | null;
         requires_project_support?: boolean;
         reason?: string | null;
     }

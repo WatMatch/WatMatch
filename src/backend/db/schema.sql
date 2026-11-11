@@ -21239,7 +21239,9 @@ begin
   end if;
 
   if p_enabled is true
-     and (v_course.routing_kind <> 'standard' or v_course.retired_for_routing) then
+     and (v_course.routing_kind <> 'standard' or v_course.retired_for_routing
+          or v_course.activation_mode = 'force_inactive'
+          or watmatch_current_course_offering_json(p_course_id) ->> 'routing_kind_override' = 'interdisciplinary') then
     raise exception 'Instructor phase control is only available for active standalone (standard) courses.'
       using errcode = '23514';
   end if;
@@ -21284,13 +21286,16 @@ declare
   v_next text;
   v_pending integer;
 begin
+  -- Serialize advances with a change of term before taking the course lock.
+  perform 1 from marketplace_settings where setting_id = 1 for share;
   select *
     into v_actor
   from users
   where user_id = p_actor_id
     and active is true
     and lower(coalesce(role, '')) = 'instructor'
-    and course_fk = p_course_id;
+    and course_fk = p_course_id
+  for share;
 
   if not found then
     raise exception 'Only the assigned course instructor can advance this course phase.'
@@ -21306,7 +21311,8 @@ begin
   if not found
      or v_course.instructor_phase_control is not true
      or v_course.routing_kind <> 'standard'
-     or v_course.retired_for_routing then
+     or v_course.retired_for_routing or v_course.active is not true
+     or watmatch_current_course_offering_json(p_course_id) ->> 'routing_kind_override' = 'interdisciplinary' then
     raise exception 'Instructor phase control is not enabled for this course.'
       using errcode = '42501';
   end if;
@@ -21372,13 +21378,21 @@ security definer
 set search_path = public
 as $$
 begin
-  update courses
+  -- Advance and audit use the same transaction timestamp. An admin replacement
+  -- changes the recorded actor/time. Unrelated course edits preserve both.
+  update courses c
   set marketplace_phase_override = null,
       marketplace_phase_override_reason = null,
       marketplace_phase_override_updated_by_fk = null,
       marketplace_phase_override_updated_at = null
-  where instructor_phase_control is true
-    and marketplace_phase_override is not null;
+  where c.marketplace_phase_override is not null and exists (
+    select 1 from audit_log a
+    where a.action = 'course_phase_advanced_by_instructor'
+      and a.entity_type = 'course' and a.entity_id = c.course_id::text
+      and a.actor_fk is not distinct from c.marketplace_phase_override_updated_by_fk
+      and a.created_at = c.marketplace_phase_override_updated_at
+      and a.metadata ->> 'to' = c.marketplace_phase_override
+  );
 
   return new;
 end;
@@ -21390,6 +21404,60 @@ after update of current_term on marketplace_settings
 for each row
 when (old.current_term is distinct from new.current_term)
 execute function watmatch_clear_instructor_phase_overrides_on_term_change();
+
+-- Use the existing upsert validation and audit trail under the same course lock.
+-- Missing PATCH fields always use the locked row, even after an instructor advance.
+create or replace function watmatch_admin_patch_course(
+  p_course_id bigint, p_changes jsonb, p_actor_id bigint, p_reason text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  c courses%rowtype;
+  v_result jsonb;
+  v_enable boolean;
+begin
+  perform watmatch_assert_admin_actor(p_actor_id);
+  select * into c from courses where course_id = p_course_id for update;
+  if not found then raise exception 'Course not found.' using errcode = 'P0002'; end if;
+  if p_changes ->> 'activation_mode' = 'force_inactive' and c.activation_mode <> 'force_inactive'
+     and nullif(btrim(p_reason), '') is null then
+    raise exception 'Forcing a course inactive requires an audit reason.' using errcode = '23514';
+  end if;
+  if p_changes ? 'expected_phase_override_updated_at'
+     and (p_changes ->> 'expected_phase_override_updated_at')::timestamptz
+         is distinct from c.marketplace_phase_override_updated_at then
+    raise exception 'The course phase changed. Reopen the course and review the current phase.'
+      using errcode = '40001';
+  end if;
+
+  -- jsonb_populate_record keeps omitted fields and respects explicit SQL nulls.
+  c := jsonb_populate_record(c, (select coalesce(jsonb_object_agg(key, value), '{}'::jsonb)
+    from jsonb_each(p_changes) where key in ('code','name','active_terms','activation_mode',
+      'routing_kind','marketplace_phase_override','marketplace_phase_override_reason',
+      'requires_project_support','instructor_phase_control')));
+  if p_changes ? 'department_id' then c.department_fk := (p_changes ->> 'department_id')::bigint; end if;
+  if p_changes ? 'ecosystem_id' then c.ecosystem_fk := (p_changes ->> 'ecosystem_id')::bigint; end if;
+  v_result := watmatch_admin_upsert_course(c.course_id, c.code, c.name, c.active_terms,
+    c.activation_mode, c.department_fk, c.ecosystem_fk, c.routing_kind,
+    c.marketplace_phase_override, c.marketplace_phase_override_reason,
+    c.requires_project_support, p_actor_id, coalesce(nullif(btrim(p_reason), ''), 'admin_course_management'));
+
+  v_enable := case when p_changes ? 'instructor_phase_control' then c.instructor_phase_control
+    when c.instructor_phase_control and (c.routing_kind <> 'standard' or c.activation_mode = 'force_inactive') then false
+  end;
+  if v_enable is not null then
+    -- If approval fails, PostgreSQL rolls back the preceding course edit and audit.
+    perform watmatch_admin_set_course_instructor_phase_control(c.course_id, v_enable, p_actor_id);
+    select * into strict c from courses where course_id = p_course_id;
+    v_result := jsonb_set(v_result, '{data}', to_jsonb(c));
+  end if;
+  return v_result;
+end;
+$$;
 
 revoke execute on all functions in schema public from public;
 revoke execute on all functions in schema public from anon;
