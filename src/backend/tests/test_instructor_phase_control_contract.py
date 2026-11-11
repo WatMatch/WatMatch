@@ -90,7 +90,7 @@ class InstructorPhaseControlSchemaTests(unittest.TestCase):
             [
                 "update courses",
                 "marketplace_phase_override = null",
-                "instructor_phase_control is true",
+                "a.created_at = c.marketplace_phase_override_updated_at",
             ],
         )
 

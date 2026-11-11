@@ -238,6 +238,9 @@ class CoursesBusinessLogic:
         requires_project_support: Optional[bool],
         actor_id: int,
         reason: Optional[str] = None,
+        instructor_phase_control: Optional[bool] = None,
+        expected_phase_override_updated_at: Optional[str] = None,
+        expected_phase_version_supplied: bool = False,
     ) -> Dict[str, Any]:
         if course_id <= 0:
             return {"success": False, "message": "Invalid course_id", "data": None}
@@ -246,18 +249,11 @@ class CoursesBusinessLogic:
         if not existing:
             return {"success": False, "message": "Course not found", "data": None}
 
-        payload: Dict[str, Any] = {
-            "code": existing.get("code"),
-            "name": existing.get("name"),
-            "active_terms": existing.get("active_terms") or [],
-            "activation_mode": existing.get("activation_mode") or "auto",
-            "department_id": existing.get("department_id") or existing.get("department_fk"),
-            "ecosystem_id": existing.get("ecosystem_id") or existing.get("ecosystem_fk"),
-            "routing_kind": existing.get("routing_kind") or "standard",
-            "marketplace_phase_override": existing.get("marketplace_phase_override"),
-            "marketplace_phase_override_reason": existing.get("marketplace_phase_override_reason"),
-            "requires_project_support": existing.get("requires_project_support") is not False,
-        }
+        payload: Dict[str, Any] = {}
+        if instructor_phase_control is not None:
+            payload["instructor_phase_control"] = instructor_phase_control
+        if expected_phase_version_supplied:
+            payload["expected_phase_override_updated_at"] = expected_phase_override_updated_at
         if code is not None:
             if not code.strip():
                 return {"success": False, "message": "Course code is required", "data": None}
@@ -309,7 +305,7 @@ class CoursesBusinessLogic:
         is_forcing_inactive = (
             str(existing.get("activation_mode") or "auto").strip().lower()
             != "force_inactive"
-            and payload["activation_mode"] == "force_inactive"
+            and payload.get("activation_mode") == "force_inactive"
         )
         if is_forcing_inactive and normalized_reason is None:
             return {
@@ -318,20 +314,9 @@ class CoursesBusinessLogic:
                 "data": None,
             }
         try:
-            return self.courses_data.upsert_course_rpc(
-                course_id=course_id,
-                code=payload["code"],
-                name=payload["name"],
-                active_terms=payload["active_terms"],
-                activation_mode=payload["activation_mode"],
-                department_id=payload["department_id"],
-                ecosystem_id=payload["ecosystem_id"],
-                routing_kind=payload["routing_kind"],
-                marketplace_phase_override=payload["marketplace_phase_override"],
-                marketplace_phase_override_reason=payload["marketplace_phase_override_reason"],
-                requires_project_support=payload["requires_project_support"],
-                actor_id=actor_id,
-                reason=normalized_reason or "admin_course_management",
+            return self.courses_data.patch_course_rpc(
+                course_id=course_id, changes=payload, actor_id=actor_id,
+                reason=normalized_reason,
             )
         except Exception as e:
             return {"success": False, "message": str(e), "data": None}

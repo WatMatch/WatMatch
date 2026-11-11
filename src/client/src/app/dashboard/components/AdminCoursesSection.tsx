@@ -29,7 +29,6 @@ import {
     fetchProjectEcosystems,
     createCourse,
     updateCourse,
-    setInstructorPhaseControl,
     cloneCourseOfferings,
     upsertCourseOffering,
     updateProjectEcosystem,
@@ -555,27 +554,26 @@ export function AdminCoursesSection() {
                 ecosystem_id:
                     normalizedEcosystemId === "none" ? null : Number(normalizedEcosystemId),
                 routing_kind: editRoutingKind,
-                marketplace_phase_override:
-                    editRoutingKind === "standard" && editPhaseOverride !== "none"
-                        ? editPhaseOverride
-                        : null,
-                marketplace_phase_override_reason:
-                    editRoutingKind === "standard" && editPhaseOverride !== "none"
-                        ? editPhaseOverrideReason.trim()
-                        : null,
+                ...((editPhaseOverride !== (course.marketplace_phase_override || "none")
+                    || editPhaseOverrideReason.trim() !== (course.marketplace_phase_override_reason || "")
+                    || editRoutingKind !== (course.routing_kind || "standard")) && {
+                    marketplace_phase_override: editRoutingKind === "standard" && editPhaseOverride !== "none"
+                        ? editPhaseOverride : null,
+                    marketplace_phase_override_reason: editRoutingKind === "standard" && editPhaseOverride !== "none"
+                        ? editPhaseOverrideReason.trim() : null,
+                    expected_phase_override_updated_at: course.marketplace_phase_override_updated_at ?? null,
+                }),
+                ...(editRoutingKind === "standard" && editInstructorPhaseControl !== Boolean(course.instructor_phase_control)
+                    && { instructor_phase_control: editInstructorPhaseControl }),
                 requires_project_support: editRequiresSupport,
                 reason: forceInactiveReason?.trim() || null,
             });
-            if (
-                editRoutingKind === "standard" &&
-                editInstructorPhaseControl !== (course.instructor_phase_control === true)
-            ) {
-                await setInstructorPhaseControl(course.course_id, editInstructorPhaseControl);
-            }
             setEditingId(null);
             await loadCourses();
         } catch (e) {
             console.error(e);
+            setEditingId(null);
+            await loadCourses();
             setError(e instanceof Error ? e.message : "Failed to update course details.");
             if (confirmingForceInactive) throw e;
         } finally {
