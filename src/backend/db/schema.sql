@@ -22185,6 +22185,8 @@ revoke all on function public.watmatch_switch_clerk_workspace(bigint,text,text,t
 grant execute on function public.watmatch_switch_clerk_workspace(bigint,text,text,text) to service_role;
 notify pgrst, 'reload schema';
 
+commit;
+
 -- Qualitative milestone notes for finalized capstone teams.
 begin;
 create table if not exists public.capstone_milestone_feedback (
