@@ -139,6 +139,14 @@ class CoursesDataLogic:
             },
         )
 
+    def patch_course_rpc(
+        self, course_id: int, changes: Dict[str, Any], actor_id: int, reason: Optional[str],
+    ) -> Dict[str, Any]:
+        return call_json_rpc(
+            "watmatch_admin_patch_course",
+            {"p_course_id": course_id, "p_changes": changes, "p_actor_id": actor_id, "p_reason": reason},
+        )
+
     def advance_course_phase_rpc(
         self, course_id: int, expected_phase: str, actor_id: int
     ) -> Dict[str, Any]:

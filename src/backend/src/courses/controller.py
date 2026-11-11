@@ -29,6 +29,8 @@ class CreateCourseRequest(BaseModel):
 
 
 class UpdateCourseRequest(BaseModel):
+    instructor_phase_control: Optional[bool] = None
+    expected_phase_override_updated_at: Optional[str] = Field(default=None, max_length=64)
     code: Optional[str] = Field(default=None, max_length=32)
     name: Optional[str] = Field(default=None, max_length=200)
     active_terms: Optional[List[str]] = Field(default=None, max_length=3)
@@ -335,6 +337,9 @@ async def update_course(
         marketplace_phase_override_reason=request.marketplace_phase_override_reason,
         marketplace_phase_override_reason_supplied=_field_supplied(request, "marketplace_phase_override_reason"),
         requires_project_support=request.requires_project_support,
+        instructor_phase_control=request.instructor_phase_control,
+        expected_phase_override_updated_at=request.expected_phase_override_updated_at,
+        expected_phase_version_supplied=_field_supplied(request, "expected_phase_override_updated_at"),
         actor_id=int(current_user["user_id"]),
         reason=request.reason,
     )
