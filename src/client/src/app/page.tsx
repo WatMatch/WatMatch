@@ -74,7 +74,7 @@ export default function WatMatchLanding() {
                             },
                             {
                                 title: "Instructor Review",
-                                desc: "Instructors can approve, reject, or request changes for teams in their course.",
+                                desc: "Course instructors review capstone proposals. They can approve a proposal, reject it, or ask the team to make changes.",
                             },
                         ].map((feature) => (
                             <Card key={feature.title} className="transition-shadow hover:shadow-md">
