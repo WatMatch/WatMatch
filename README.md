@@ -77,6 +77,14 @@ npm ci
 npm run dev
 ```
 
+## Waterloo VM deployment
+
+See [the VM release guide](deploy/README.md) for the existing service layout,
+redacted configuration checks, incremental migration order, release verification,
+and restoration of the previous release. The pilot needs the approved HTTPS
+origin, synchronized time, configured identity, and a complete student workflow
+test on the selected release.
+
 ## Vercel Deployment
 
 Import this repository as one Vercel project, with the Root Directory set to the
