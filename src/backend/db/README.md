@@ -1,5 +1,32 @@
 # Instructor and University Mentor role switching
 
+## Existing invite RPC upgrade
+
+Some existing databases expose only the three-argument `watmatch_revoke_invite`
+routine. The application sends `p_reason` as a fourth named argument, so those
+databases reject the request before revocation runs. Apply
+`migrations/20261125_invite_revoke_reason.sql` through the reviewed database
+rollout. The transaction replaces the old overload, keeps optional arguments
+for existing callers, and restricts execution to the backend service role.
+It preserves stored rows and refreshes the PostgREST schema cache on commit.
+Unexpected routine dependencies or custom execute grants abort the transaction
+for review. Fresh databases already get this routine from `schema.sql`.
+
+With PostgreSQL's `initdb`, `pg_ctl`, and `psql` on `PATH`, run from the repository
+root:
+
+```sh
+bash src/backend/tests/invite_revoke/run.sh
+```
+
+The runner always creates and removes a private Unix-socket PostgreSQL cluster.
+It models the old signature on the full schema using synthetic records, applies
+the migration twice, compares every public table, and checks role/course scope,
+required reasons, audit records, repeated requests, restricted execution, and
+transaction rollback. It does not reproduce an entire deployed database snapshot.
+
+## Membership migration order
+
 Existing databases: apply `migrations/20261005_instructor_mentor_roles.sql` as part of the
 approved database rollout, followed by `migrations/20261111_clerk_role_sessions.sql`, before running the updated backend. The migration is
 transactional and safe to reapply. It backfills each existing account's one role;
