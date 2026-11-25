@@ -100,6 +100,17 @@ def check_config(backend, frontend, public_origin, read_only):
     require(issuer.startswith("https://") and issuer == backend["CLERK_ISSUER"],
             "CLERK_ISSUER must be a canonical HTTPS origin")
     require(origin(backend["SUPABASE_URL"]).startswith("https://"), "SUPABASE_URL must use HTTPS")
+    # Match the backend's supported key contract without importing database.py,
+    # which would create a live Supabase client. Decoding does not verify a key.
+    parts = backend["SUPABASE_SERVICE_ROLE_KEY"].split(".")
+    require(len(parts) == 3 and all(parts), "SUPABASE_SERVICE_ROLE_KEY must use the supported JWT format")
+    try:
+        payload = base64.b64decode(parts[1] + "=" * (-len(parts[1]) % 4), altchars=b"-_", validate=True)
+        claims = json.loads(payload)
+    except (ValueError, UnicodeError):
+        raise CheckError("SUPABASE_SERVICE_ROLE_KEY payload is invalid") from None
+    require(isinstance(claims, dict) and claims.get("role") == "service_role",
+            "SUPABASE_SERVICE_ROLE_KEY must contain the service_role role")
     secret = re.fullmatch(r"sk_(test|live)_[A-Za-z0-9_-]+", backend["CLERK_SECRET_KEY"])
     publishable = re.fullmatch(r"pk_(test|live)_([A-Za-z0-9_+/=-]+)", frontend["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"])
     require(secret is not None and publishable is not None, "Clerk key format is invalid")
@@ -111,12 +122,11 @@ def check_config(backend, frontend, public_origin, read_only):
     except (ValueError, UnicodeError):
         raise CheckError("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY encoding is invalid") from None
     require(public_host == urllib.parse.urlsplit(issuer).netloc + "$", "Clerk publishable key and issuer differ")
-    require(urllib.parse.urlsplit(public_origin).hostname in {"localhost", "127.0.0.1", "::1"}
-            or secret.group(1) == "live", "The pilot HTTPS origin requires the configured production Clerk instance")
     api_feedback = backend.get("WATMATCH_MILESTONE_FEEDBACK_ENABLED", "false")
     client_feedback = frontend.get("NEXT_PUBLIC_MILESTONE_FEEDBACK_ENABLED", "false")
     require(api_feedback in {"true", "false"} and api_feedback == client_feedback,
             "Milestone feature flags must match and be true or false")
+    return secret.group(1) == "test"
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -189,9 +199,11 @@ def main():
     args = parser.parse_args()
     try:
         if args.command == "config":
-            check_config(environment(args.backend_env), environment(args.frontend_env),
-                         args.origin, args.mode == "read-only")
+            development_instance = check_config(environment(args.backend_env), environment(args.frontend_env),
+                                                args.origin, args.mode == "read-only")
             print("PASS environment names, origin, key consistency and feature modes")
+            if development_instance:
+                print("LIMIT Clerk development instance; confirm its settings and suitability for the intended testers")
             print("LIMIT format checks do not verify live credentials or the client build's embedded configuration")
         else:
             require(not args.allow_unready or args.mode == "read-only", "--allow-unready is limited to read-only previews")

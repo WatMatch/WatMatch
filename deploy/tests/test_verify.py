@@ -13,8 +13,9 @@ import verify
 
 
 def configuration():
+    payload = base64.urlsafe_b64encode(json.dumps({"role": "service_role"}).encode()).decode().rstrip("=")
     backend = {
-        "SUPABASE_URL": "https://database.invalid", "SUPABASE_SERVICE_ROLE_KEY": "synthetic-only",
+        "SUPABASE_URL": "https://database.invalid", "SUPABASE_SERVICE_ROLE_KEY": "header." + payload + ".synthetic-signature",
         "CLERK_ISSUER": "https://identity.invalid", "CLERK_SECRET_KEY": "sk_test_synthetic",
         "CLERK_AUTHORIZED_PARTIES": "http://127.0.0.1:8080", "WATMATCH_READ_ONLY": "true",
         "WATMATCH_REQUIRE_SYNC_CLOCK": "true",
@@ -67,16 +68,32 @@ class DeploymentVerificationTests(unittest.TestCase):
                 with self.assertRaises(verify.CheckError):
                     verify.check_config(*values, "http://127.0.0.1:8080", True)
 
-    def test_pilot_requires_live_instance_and_write_mode(self):
+    def test_pilot_validates_write_mode_and_reports_clerk_instance_type(self):
         backend, frontend = configuration()
         backend["CLERK_AUTHORIZED_PARTIES"] = "https://pilot.invalid"
         backend["WATMATCH_READ_ONLY"] = "false"
         frontend["NEXT_PUBLIC_PREVIEW_READ_ONLY"] = "false"
-        with self.assertRaises(verify.CheckError):
-            verify.check_config(backend, frontend, "https://pilot.invalid", False)
+        self.assertTrue(verify.check_config(backend, frontend, "https://pilot.invalid", False))
         backend["CLERK_SECRET_KEY"] = frontend["CLERK_SECRET_KEY"] = "sk_live_synthetic"
         frontend["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"] = frontend["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"].replace("pk_test_", "pk_live_")
-        verify.check_config(backend, frontend, "https://pilot.invalid", False)
+        self.assertFalse(verify.check_config(backend, frontend, "https://pilot.invalid", False))
+
+    def test_private_https_preview_can_use_development_clerk(self):
+        backend, frontend = configuration()
+        backend["CLERK_AUTHORIZED_PARTIES"] = "https://preview.invalid"
+        verify.check_config(backend, frontend, "https://preview.invalid", True)
+
+    def test_database_key_contract_rejects_invalid_anon_and_new_key_format(self):
+        anon_payload = base64.urlsafe_b64encode(b'{"role":"anon"}').decode().rstrip("=")
+        values = ("synthetic-only", "sb_secret_synthetic-only", "header.bad.signature",
+                  "header." + anon_payload + ".signature", "header.W10.signature")
+        for value in values:
+            with self.subTest(format=value.split(".")[0]):
+                backend, frontend = configuration()
+                backend["SUPABASE_SERVICE_ROLE_KEY"] = value
+                with self.assertRaises(verify.CheckError) as error:
+                    verify.check_config(backend, frontend, "http://127.0.0.1:8080", True)
+                self.assertNotIn(value, str(error.exception))
 
     def test_origin_rejects_cleartext_remote_and_credential_urls(self):
         for value in ("http://pilot.invalid", "https://user:password@pilot.invalid", "https://pilot.invalid/path",

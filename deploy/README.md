@@ -74,8 +74,11 @@ sudo python3 deploy/verify.py config \
 ```
 
 For a pilot origin, replace `--origin` with the exact approved HTTPS origin and
-use `--mode pilot`. The checker expects matching writable-mode flags, the
-configured production Clerk instance, and `WATMATCH_REQUIRE_SYNC_CLOCK=true`.
+use `--mode pilot`. The checker expects matching writable-mode flags, matching
+Clerk instance keys, and `WATMATCH_REQUIRE_SYNC_CLOCK=true`. A development
+instance is reported as a limit so the team can confirm its settings and
+suitability for the intended testers. The key type alone does not establish
+that an identity provider is correctly configured.
 This is a validation command, not permission to enable writes or migrate data.
 The private backend service template deliberately requires read-only mode.
 The pilot change must also update its `ExecCondition` to require the approved
@@ -84,7 +87,10 @@ mode, and rebuild the client with the corresponding notice/feature flags.
 The checker confirms consistency and formats. It cannot verify whether keys are
 active, how Clerk verifies emails, whether the user has a WatMatch account, or
 what values were embedded in an existing frontend build. Verify the live
-provider and the exact build metadata separately. Milestone feedback defaults
+provider and the exact build metadata separately. It checks the Supabase key's
+JWT payload for the service_role claim because the current backend requires that
+format. This does not verify the signature or credential validity. The current
+backend does not support the newer sb_secret_* key format. Milestone feedback defaults
 off. Enable both feature flags only when its migration and intended permission
 tests pass. Existing mail settings are optional. Review the selected workflow's
 email side effects before using shared pilot data; there is no documented
@@ -116,7 +122,22 @@ global notification-disable flag to assume.
    The backend requirements include unpinned transitive dependencies. Save the
    resolved lock/freeze with the release evidence, and test the installed result.
    Do not describe this manifest alone as a fully reproducible backend lockfile.
-4. From `src/client`, provide the chosen public build configuration and run:
+4. From `src/client`, set the four public build values in the unprivileged
+   builder's shell. Obtain the publishable key from the chosen Clerk instance.
+   Replace the placeholder below with that public key before executing. The
+   example keeps the private preview and milestone-disabled settings. Select the
+   corresponding final values for an approved pilot build.
+
+   ```sh
+   export NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='REPLACE_WITH_CLERK_PUBLISHABLE_KEY'
+   export NEXT_PUBLIC_API_URL=/api/v1
+   export NEXT_PUBLIC_PREVIEW_READ_ONLY=true
+   export NEXT_PUBLIC_MILESTONE_FEEDBACK_ENABLED=false
+   ```
+
+   These values are public and can be supplied directly to the build operator.
+   Keep the root-only runtime environment files separate. The Next.js server
+   receives its CLERK_SECRET_KEY through systemd at runtime. Then run:
 
    ```sh
    npm ci --include=dev --include=optional
