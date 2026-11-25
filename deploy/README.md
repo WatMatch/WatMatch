@@ -115,13 +115,16 @@ global notification-disable flag to assume.
    resolved dependency versions for this release, and run:
 
    ```sh
+   .venv/bin/python -m pip install -r requirements.txt -c constraints-python313.txt
    .venv/bin/python -m pip check
    .venv/bin/python -I -B -m unittest discover -s tests
    ```
 
-   The backend requirements include unpinned transitive dependencies. Save the
-   resolved lock/freeze with the release evidence, and test the installed result.
-   Do not describe this manifest alone as a fully reproducible backend lockfile.
+   `constraints-python313.txt` records the 45 tested application dependency
+   versions, including transitive packages. Use it with `requirements.txt`.
+   These are version constraints without artifact hashes. Save the installed
+   freeze with the release evidence, compare it to the constraints, and test
+   the Linux installation before activation.
 4. From `src/client`, set the four public build values in the unprivileged
    builder's shell. Obtain the publishable key from the chosen Clerk instance.
    Replace the placeholder below with that public key before executing. The

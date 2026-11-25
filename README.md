@@ -62,7 +62,7 @@ Backend:
 
 ```powershell
 Set-Location src/backend
-python -m pip install -r requirements.txt
+python -m pip install -r requirements.txt -c constraints-python313.txt
 python main.py
 ```
 

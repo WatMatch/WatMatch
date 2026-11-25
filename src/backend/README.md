@@ -9,7 +9,7 @@ Clerk verifies sign-in identity; WatMatch database records determine access.
 Install dependencies:
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt -c constraints-python313.txt
 ```
 
 Create a `.env` file:
@@ -50,10 +50,14 @@ Installing into an old environment can retain packages removed from requirements
 From `src/backend`, run:
 
 ```bash
-python -m pip install -r requirements.txt
+python -m pip install -r requirements.txt -c constraints-python313.txt
 python -m pip check
 python -I -B -m unittest discover -s tests
 ```
+
+`constraints-python313.txt` records the tested direct and transitive versions.
+Use it with the requirements file to keep the selected package versions stable.
+The constraints cover Python 3.13 and contain version pins without wheel hashes.
 
 The dependency tests use synthetic JWTs, a blocked network, and mocked database
 responses. They check the retained legacy token helper, invalid-token rejection,
