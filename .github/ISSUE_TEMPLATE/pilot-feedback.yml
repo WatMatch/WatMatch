@@ -1,0 +1,57 @@
+name: Pilot feedback
+description: Report a problem observed while trying WatMatch.
+title: "[Pilot] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Give the steps you actually tried. Omit passwords, tokens, student numbers, private project details and other people's records. Describe account roles instead of names.
+  - type: dropdown
+    id: session
+    attributes:
+      label: How did you test?
+      options:
+        - Independently on the Waterloo website
+        - Operated the facilitator's laptop
+        - Directed a live screen share
+        - Internal team rehearsal
+        - Automated or simulated test
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Page, browser and approximate time
+      description: Include the page path and browser. The team can add the release revision.
+      placeholder: "/discover, Firefox, Nov 25 around 3 pm"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: What did you try?
+      description: Include your role and the fewest steps that reproduce the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What did you expect, and what happened?
+    validations:
+      required: true
+  - type: dropdown
+    id: impact
+    attributes:
+      label: What was the effect?
+      options:
+        - Could not finish the task
+        - Finished with help or a workaround
+        - Finished, but something was unclear
+        - Suggestion for a future improvement
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Optional evidence
+      description: Add a redacted screenshot or exact error text if it helps.
