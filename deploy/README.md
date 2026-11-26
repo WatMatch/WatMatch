@@ -101,9 +101,9 @@ global notification-disable flag to assume.
 1. Select the reviewed integration commit. Record its full SHA and dependency
    order in the release issue. Include the role/session, phase, feedback fixes,
    and public-copy branches intended for the pilot. Check the actual merge result.
-   The existing Vercel exclusion covers `mid2-review-*`. A merge to another
-   branch can deploy Vercel automatically; confirm that project's deployment
-   setting before merging when public deployment is outside the task scope.
+   Automatic Vercel Git deployments are disabled for `main` and `mid2-review-*`
+   while the Waterloo release is prepared. Other branches retain their existing
+   deployment behavior. Re-enabling Vercel requires a separate release decision.
 2. Build in a new unprivileged VM directory, with the selected tracked source.
    Preserve the installed preview and its environment. Build Linux dependencies
    on Linux, using the committed frontend lockfile. The prepared VM has Node
