@@ -317,6 +317,7 @@ export function AdminCoursesSection() {
     const [editEcosystemId, setEditEcosystemId] = useState("none");
     const [editRoutingKind, setEditRoutingKind] = useState<RoutingKind>("standard");
     const [editRequiresSupport, setEditRequiresSupport] = useState(true);
+    const [editInstructorPhaseControl, setEditInstructorPhaseControl] = useState(false);
     const [editPhaseOverride, setEditPhaseOverride] = useState<PhaseOverrideValue>("none");
     const [editPhaseOverrideReason, setEditPhaseOverrideReason] = useState("");
     const [offeringDraft, setOfferingDraft] = useState<OfferingDraft>(() =>
@@ -504,6 +505,7 @@ export function AdminCoursesSection() {
         setEditEcosystemId(ecosystemValue(course));
         setEditRoutingKind(course.routing_kind || "standard");
         setEditRequiresSupport(course.requires_project_support !== false);
+        setEditInstructorPhaseControl(course.instructor_phase_control === true);
         setEditPhaseOverride(course.marketplace_phase_override || "none");
         setEditPhaseOverrideReason(course.marketplace_phase_override_reason || "");
         setError(null);
@@ -552,14 +554,17 @@ export function AdminCoursesSection() {
                 ecosystem_id:
                     normalizedEcosystemId === "none" ? null : Number(normalizedEcosystemId),
                 routing_kind: editRoutingKind,
-                marketplace_phase_override:
-                    editRoutingKind === "standard" && editPhaseOverride !== "none"
-                        ? editPhaseOverride
-                        : null,
-                marketplace_phase_override_reason:
-                    editRoutingKind === "standard" && editPhaseOverride !== "none"
-                        ? editPhaseOverrideReason.trim()
-                        : null,
+                ...((editPhaseOverride !== (course.marketplace_phase_override || "none")
+                    || editPhaseOverrideReason.trim() !== (course.marketplace_phase_override_reason || "")
+                    || editRoutingKind !== (course.routing_kind || "standard")) && {
+                    marketplace_phase_override: editRoutingKind === "standard" && editPhaseOverride !== "none"
+                        ? editPhaseOverride : null,
+                    marketplace_phase_override_reason: editRoutingKind === "standard" && editPhaseOverride !== "none"
+                        ? editPhaseOverrideReason.trim() : null,
+                    expected_phase_override_updated_at: course.marketplace_phase_override_updated_at ?? null,
+                }),
+                ...(editRoutingKind === "standard" && editInstructorPhaseControl !== Boolean(course.instructor_phase_control)
+                    && { instructor_phase_control: editInstructorPhaseControl }),
                 requires_project_support: editRequiresSupport,
                 reason: forceInactiveReason?.trim() || null,
             });
@@ -567,6 +572,8 @@ export function AdminCoursesSection() {
             await loadCourses();
         } catch (e) {
             console.error(e);
+            setEditingId(null);
+            await loadCourses();
             setError(e instanceof Error ? e.message : "Failed to update course details.");
             if (confirmingForceInactive) throw e;
         } finally {
@@ -2108,6 +2115,16 @@ export function AdminCoursesSection() {
                                                          }
                                                      />
                                                      Require mentor or confirmed external partner before finalization
+                                                 </label>
+                                                 <label className="flex items-center gap-2 text-sm text-slate-700">
+                                                     <Checkbox
+                                                         checked={editInstructorPhaseControl}
+                                                         disabled={editRoutingKind !== "standard"}
+                                                         onCheckedChange={(checked) =>
+                                                             setEditInstructorPhaseControl(checked === true)
+                                                         }
+                                                     />
+                                                     Let the assigned instructor advance this standalone course through the marketplace phases
                                                  </label>
                                                  <Disclosure
                                                      summary="Advanced: marketplace phase override"

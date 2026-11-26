@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { RoleSwitcher } from "@/components/RoleSwitcher";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -95,6 +96,7 @@ export default function Sidebar({ className, onNavigate }: SidebarProps) {
     const [isSaving, setIsSaving] = useState(false);
     const [isLoadingProfile, setIsLoadingProfile] = useState(false);
     const [profileError, setProfileError] = useState("");
+    const [logoutError, setLogoutError] = useState("");
     const [partnerOrganization, setPartnerOrganization] = useState<string | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
     const accountButtonRef = useRef<HTMLButtonElement>(null);
@@ -132,10 +134,15 @@ export default function Sidebar({ className, onNavigate }: SidebarProps) {
     const isActive = (path: string) =>
         pathname === path || pathname.startsWith(`${path}/`);
 
-    const handleLogout = () => {
-        clearUser();
-        logout();
-        router.replace("/login");
+    const handleLogout = async () => {
+        setLogoutError("");
+        try {
+            await logout();
+            clearUser();
+            router.replace("/login");
+        } catch {
+            setLogoutError("Sign-out failed. Check your connection and try again.");
+        }
     };
 
     const loadProfile = async () => {
@@ -382,14 +389,14 @@ export default function Sidebar({ className, onNavigate }: SidebarProps) {
             : isExternalPartner
               ? "External partner"
               : isMentor
-                ? "Mentor"
+                ? "University Mentor"
                 : isInstructor
                   ? "Instructor"
                   : isStudent
                     ? "Student"
                     : "WatMatch user";
     const contextLabel =
-        (isExternalPartner ? partnerOrganization : null) || user?.course?.code || roleLabel;
+        (isExternalPartner ? partnerOrganization : null) || ((isInstructor || isStudent) ? user?.course?.code : null) || roleLabel;
 
     return (
         <aside
@@ -441,6 +448,8 @@ export default function Sidebar({ className, onNavigate }: SidebarProps) {
                 className="relative border-t border-slate-200/90 p-3"
                 ref={menuRef}
             >
+                <RoleSwitcher />
+                {logoutError && <p role="alert" className="mb-2 text-xs text-red-700">{logoutError}</p>}
                 {user?.email && (
                     <>
                         <button

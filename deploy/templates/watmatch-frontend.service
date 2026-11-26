@@ -1,0 +1,48 @@
+[Unit]
+Description=WatMatch private authentication preview web
+After=network.target
+ConditionPathExists=/srv/watmatch/current/src/client/.next/BUILD_ID
+ConditionPathExists=/srv/watmatch/current/src/client/node_modules/next/dist/bin/next
+ConditionPathIsSymbolicLink=/srv/watmatch/current/src/client/.next/cache
+ConditionPathExists=/etc/watmatch/frontend.env
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=watmatch-web
+Group=watmatch-web
+WorkingDirectory=/srv/watmatch/current/src/client
+EnvironmentFile=-/etc/watmatch/backend-network.env
+EnvironmentFile=-/etc/watmatch/frontend.env
+Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
+Environment=XDG_CACHE_HOME=/var/cache/watmatch-web
+UnsetEnvironment=ALL_PROXY all_proxy NODE_TLS_REJECT_UNAUTHORIZED SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY JWT_SECRET_KEY JWT_REFRESH_SECRET_KEY EMAIL_USER EMAIL_PASSWORD
+CacheDirectory=watmatch-web
+CacheDirectoryMode=0700
+ExecCondition=/usr/bin/test -w /srv/watmatch/current/src/client/.next/cache
+ExecCondition=/bin/sh -c 'test -n "$$CLERK_SECRET_KEY" && test -n "$$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"'
+ExecStart=/usr/bin/node --dns-result-order=ipv4first --use-env-proxy /srv/watmatch/current/src/client/node_modules/next/dist/bin/next start --hostname localhost --port 3000
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ProtectProc=invisible
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=watmatch-frontend
+
+[Install]
+WantedBy=multi-user.target

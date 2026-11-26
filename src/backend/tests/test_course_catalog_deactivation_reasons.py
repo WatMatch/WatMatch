@@ -56,8 +56,8 @@ class FakeCoursesData:
     def get_project_ecosystem_by_id(self, ecosystem_id):
         return self.ecosystem if ecosystem_id == self.ecosystem["ecosystem_id"] else None
 
-    def upsert_course_rpc(self, **kwargs):
-        self.course_calls.append(kwargs)
+    def patch_course_rpc(self, **kwargs):
+        self.course_calls.append({**kwargs, **kwargs["changes"]})
         return {"success": True, "message": "Course updated.", "data": kwargs}
 
     def update_project_ecosystem_rpc(self, **kwargs):
@@ -119,17 +119,14 @@ class CourseCatalogDeactivationReasonTests(unittest.TestCase):
         self.assertTrue(result["success"])
         call = self.data.course_calls[0]
         self.assertEqual(call["reason"], "Program paused for curriculum review.")
-        self.assertEqual(call["marketplace_phase_override"], "commitment")
-        self.assertEqual(
-            call["marketplace_phase_override_reason"],
-            "Course-specific review window.",
-        )
+        self.assertNotIn("marketplace_phase_override", call["changes"])
+        self.assertNotIn("marketplace_phase_override_reason", call["changes"])
 
-    def test_non_destructive_course_edit_keeps_default_audit_reason(self) -> None:
+    def test_non_destructive_course_edit_uses_database_audit_default(self) -> None:
         result = self.update_course(activation_mode="force_active")
 
         self.assertTrue(result["success"])
-        self.assertEqual(self.data.course_calls[0]["reason"], "admin_course_management")
+        self.assertIsNone(self.data.course_calls[0]["reason"])
 
     def test_ecosystem_deactivation_rejects_missing_reason(self) -> None:
         result = self.update_ecosystem(active=False, reason=None)

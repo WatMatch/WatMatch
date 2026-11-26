@@ -5,7 +5,6 @@ import {
     useContext,
     useState,
     useCallback,
-    useEffect,
     ReactNode,
 } from "react";
 
@@ -14,6 +13,9 @@ interface UserData {
     email: string;
     course_fk: string | number | null;
     role: string;
+    active_role?: string;
+    default_role?: string;
+    assigned_roles?: string[];
     course_active?: boolean | null;
     home_department_fk?: string | number | null;
     home_department_id?: string | number | null;
@@ -46,30 +48,12 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 export function UserProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<UserData | null>(null);
 
-    useEffect(() => {
-        const cachedUser = localStorage.getItem("userData");
-        if (!cachedUser) return;
-
-        try {
-            setUser(JSON.parse(cachedUser) as UserData);
-        } catch {
-            localStorage.removeItem("userData");
-        }
-    }, []);
-
+    // User details exist only in memory after /auth/me succeeds for this session.
     const setUserData = useCallback((userData: UserData | null) => {
         setUser(userData);
-        if (userData) {
-            localStorage.setItem("userData", JSON.stringify(userData));
-        } else {
-            localStorage.removeItem("userData");
-        }
     }, []);
 
-    const clearUser = useCallback(() => {
-        setUser(null);
-        localStorage.removeItem("userData");
-    }, []);
+    const clearUser = useCallback(() => setUser(null), []);
 
     return (
         <UserContext.Provider value={{ user, setUser: setUserData, clearUser }}>

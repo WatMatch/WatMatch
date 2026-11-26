@@ -95,6 +95,7 @@ export interface AdminStudentEntry {
     user_id: number;
     email: string;
     role: string;
+    assigned_roles?: string[];
     course_fk: number | null;
     home_department_fk?: number | null;
     home_department_id?: number | null;
@@ -120,6 +121,18 @@ export interface AdminStudentEntry {
 }
 
 export type AdminUserEntry = AdminStudentEntry;
+
+export async function setAdminUserRoles(userId: number, payload: {
+    roles: Array<"instructor" | "mentor">;
+    reason: string;
+    course_id?: number | null;
+    home_department_id?: number | null;
+}): Promise<void> {
+    const response = await apiFetch(buildApiUrl(`/users/admin/users/${userId}/roles`), {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error(await readApiError(response, "Could not update roles"));
+}
 
 export type AdminManagedRole =
     | "student"
@@ -376,7 +389,7 @@ export interface StudentProfile {
  * Fetch student profile
  */
 export async function fetchStudentProfile(): Promise<StudentProfile | null> {
-    const response = await apiFetch(buildApiUrl("/api/v1/student-profile"));
+    const response = await apiFetch(buildApiUrl("/api/v1/student-profile/"));
 
     if (!response.ok) {
         if (response.status === 404) {
@@ -426,7 +439,7 @@ export async function updateStudentProfile(data: {
     github_url?: string | null;
     profile_visibility?: "team_network" | "students" | "private";
 }): Promise<void> {
-    const response = await apiFetch(buildApiUrl("/api/v1/student-profile"), {
+    const response = await apiFetch(buildApiUrl("/api/v1/student-profile/"), {
         method: "POST",
         headers: {
             "Content-Type": "application/json",

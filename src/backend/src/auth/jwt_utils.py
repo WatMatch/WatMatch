@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
-from jose import JWTError, jwt
+import jwt
+from jwt import InvalidTokenError
 from passlib.context import CryptContext
 import os
 from dotenv import load_dotenv
@@ -64,7 +65,7 @@ def verify_access_token(token: str) -> Optional[Dict[str, Any]]:
         if payload.get("type") != "access":
             return None
         return payload
-    except JWTError:
+    except InvalidTokenError:
         return None
 
 
@@ -75,5 +76,5 @@ def verify_refresh_token(token: str) -> Optional[Dict[str, Any]]:
         if payload.get("type") != "refresh":
             return None
         return payload
-    except JWTError:
+    except InvalidTokenError:
         return None

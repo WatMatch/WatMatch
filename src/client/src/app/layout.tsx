@@ -4,6 +4,9 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { UserProvider } from "@/contexts/UserContext";
 import LayoutContent from "@/components/LayoutContent";
 
+// Resolve server authentication configuration on each request, not at build time.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
     title: "WatMatch",
     description:
@@ -28,7 +31,7 @@ export default function RootLayout({
                 <link rel="apple-touch-icon" href="/logo-favicon.png" />
             </head>
             <body className="flex min-h-dvh flex-col antialiased">
-                <AuthProvider>
+                <AuthProvider publishableKey={process.env.CLERK_SECRET_KEY ? process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY : undefined}>
                     <UserProvider>
                         <LayoutContent>{children}</LayoutContent>
                     </UserProvider>

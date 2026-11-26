@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/contexts/AuthContext";
 import { userContext } from "@/contexts/UserContext";
+import ProtectedRoute from "@/components/ProtectedRoute";
 import Navbar from "@/components/ui/navbar";
 import Sidebar from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
@@ -18,7 +19,7 @@ import Link from "next/link";
 import { ReactNode, useState } from "react";
 import { usePathname } from "next/navigation";
 
-export default function LayoutContent({ children }: { children: ReactNode }) {
+function LayoutContentInner({ children }: { children: ReactNode }) {
     const { isLoggedIn, isInitialized } = useAuth();
     const { user } = userContext();
     const pathname = usePathname();
@@ -138,4 +139,13 @@ export default function LayoutContent({ children }: { children: ReactNode }) {
             </div>
         </>
     );
+}
+
+export default function LayoutContent({ children }: { children: ReactNode }) {
+    const pathname = usePathname();
+    const page = <LayoutContentInner>{children}</LayoutContentInner>;
+    return <>
+        {process.env.NEXT_PUBLIC_PREVIEW_READ_ONLY === "true" && <div role="status" className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-950">Private preview: changes are disabled.</div>}
+        {pathname === "/" || pathname === "/login" ? page : <ProtectedRoute>{page}</ProtectedRoute>}
+    </>;
 }

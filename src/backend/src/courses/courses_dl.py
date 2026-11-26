@@ -139,6 +139,34 @@ class CoursesDataLogic:
             },
         )
 
+    def patch_course_rpc(
+        self, course_id: int, changes: Dict[str, Any], actor_id: int, reason: Optional[str],
+    ) -> Dict[str, Any]:
+        return call_json_rpc(
+            "watmatch_admin_patch_course",
+            {"p_course_id": course_id, "p_changes": changes, "p_actor_id": actor_id, "p_reason": reason},
+        )
+
+    def advance_course_phase_rpc(
+        self, course_id: int, expected_phase: str, actor_id: int
+    ) -> Dict[str, Any]:
+        return call_json_rpc(
+            "watmatch_instructor_advance_course_phase",
+            {
+                "p_course_id": course_id,
+                "p_actor_id": actor_id,
+                "p_expected_phase": expected_phase,
+            },
+        )
+
+    def set_instructor_phase_control_rpc(
+        self, course_id: int, enabled: bool, actor_id: int
+    ) -> Dict[str, Any]:
+        return call_json_rpc(
+            "watmatch_admin_set_course_instructor_phase_control",
+            {"p_course_id": course_id, "p_enabled": enabled, "p_actor_id": actor_id},
+        )
+
     def update_project_ecosystem_rpc(
         self,
         ecosystem_id: int,

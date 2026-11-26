@@ -86,6 +86,9 @@ function DiscoverPageContent() {
         interestMessages,
         submitInterest,
         isSubmittingInterest,
+        historyError,
+        retryHistory,
+        isLoading: loadingHistory,
         error: interestError,
         clearError: clearInterestError,
     } = useInterest({ enabled: isStudent });
@@ -535,6 +538,7 @@ function DiscoverPageContent() {
     });
 
     const hasActiveFilters = search.trim() !== "" || dept !== "All" || year !== "All";
+    const pageError = capstoneError || (!isInterestOpen && interestError) || marketplaceActionError;
 
     return (
         <BrowsePageShell>
@@ -600,9 +604,23 @@ function DiscoverPageContent() {
                 </div>
             </BrowseToolbar>
 
-            {(capstoneError || interestError || marketplaceActionError) && (
-                <BrowseNotice tone="error">
-                    {capstoneError || interestError || marketplaceActionError}
+            {pageError && <BrowseNotice tone="error">{pageError}</BrowseNotice>}
+            {isStudent && historyError && (
+                <BrowseNotice
+                    tone="error"
+                    action={
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={retryHistory}
+                            disabled={loadingHistory}
+                        >
+                            {loadingHistory ? "Retrying…" : "Retry"}
+                        </Button>
+                    }
+                >
+                    {historyError}
                 </BrowseNotice>
             )}
             {mentorOfferMessage && (
@@ -783,6 +801,7 @@ function DiscoverPageContent() {
                 onMessageChange={setInterestText}
                 onSubmit={handleSubmitInterest}
                 isSubmitting={isSubmittingInterest}
+                error={interestError}
                 submitLabel={
                     activeProjectId && isProjectInterestedById(activeProjectId)
                         ? "Update Note"
@@ -842,9 +861,10 @@ function DiscoverPageContent() {
 }
 
 export default function DiscoverPage() {
+    const { user } = userContext();
     return (
         <ProtectedRoute>
-            <DiscoverPageContent />
+            <DiscoverPageContent key={`${user?.user_id}:${user?.role}`} />
         </ProtectedRoute>
     );
 }

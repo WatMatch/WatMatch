@@ -1,5 +1,5 @@
 import useSWR from "swr";
-import { buildApiUrl } from "@/lib/api-client";
+import { buildApiUrl, parseApiUrl } from "@/lib/api-client";
 import {
     fetchPastCapstones,
     fetchPastCapstoneMetadata,
@@ -183,7 +183,7 @@ const formatCapstone = (raw: unknown, index: number): PastCapstone => {
 };
 
 const fetcher = async (url: string): Promise<PastCapstoneApiResponse> => {
-    const urlObj = new URL(url);
+    const urlObj = parseApiUrl(url);
     const page = parseInt(urlObj.searchParams.get("page") || "1");
     const pageSize = parseInt(urlObj.searchParams.get("page_size") || "10");
     const search = urlObj.searchParams.get("search") || undefined;

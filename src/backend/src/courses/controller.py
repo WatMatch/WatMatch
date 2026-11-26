@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional, List
 from .courses_bl import CoursesBusinessLogic
-from ..auth.dependencies import get_current_user
+from ..auth.dependencies import get_current_instructor, get_current_user
 
 router = APIRouter(prefix="/courses", tags=["courses"])
 courses_business = CoursesBusinessLogic()
@@ -29,6 +29,8 @@ class CreateCourseRequest(BaseModel):
 
 
 class UpdateCourseRequest(BaseModel):
+    instructor_phase_control: Optional[bool] = None
+    expected_phase_override_updated_at: Optional[str] = Field(default=None, max_length=64)
     code: Optional[str] = Field(default=None, max_length=32)
     name: Optional[str] = Field(default=None, max_length=200)
     active_terms: Optional[List[str]] = Field(default=None, max_length=3)
@@ -81,6 +83,14 @@ class CloneCourseOfferingsRequest(BaseModel):
     target_status: str = Field(default="draft", max_length=32)
     overwrite_existing: bool = False
     reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+class AdvanceCoursePhaseRequest(BaseModel):
+    expected_phase: str = Field(..., max_length=32)
+
+
+class InstructorPhaseControlRequest(BaseModel):
+    enabled: bool
 
 
 @router.post("/")
@@ -327,8 +337,48 @@ async def update_course(
         marketplace_phase_override_reason=request.marketplace_phase_override_reason,
         marketplace_phase_override_reason_supplied=_field_supplied(request, "marketplace_phase_override_reason"),
         requires_project_support=request.requires_project_support,
+        instructor_phase_control=request.instructor_phase_control,
+        expected_phase_override_updated_at=request.expected_phase_override_updated_at,
+        expected_phase_version_supplied=_field_supplied(request, "expected_phase_override_updated_at"),
         actor_id=int(current_user["user_id"]),
         reason=request.reason,
+    )
+    if not result["success"]:
+        code = 404 if "not found" in result["message"].lower() else 400
+        raise HTTPException(status_code=code, detail=result["message"])
+    return result
+
+
+@router.post("/{course_id}/phase/advance")
+async def advance_course_phase(
+    course_id: int,
+    request: AdvanceCoursePhaseRequest,
+    current_user: Dict[str, Any] = Depends(get_current_instructor)
+) -> Dict[str, Any]:
+    result = courses_business.advance_course_phase(
+        course_id=course_id,
+        expected_phase=request.expected_phase,
+        actor_id=int(current_user["user_id"]),
+    )
+    if not result["success"]:
+        code = 404 if "not found" in result["message"].lower() else 400
+        raise HTTPException(status_code=code, detail=result["message"])
+    return result
+
+
+@router.put("/{course_id}/instructor-phase-control")
+async def set_instructor_phase_control(
+    course_id: int,
+    request: InstructorPhaseControlRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> Dict[str, Any]:
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    result = courses_business.set_instructor_phase_control(
+        course_id=course_id,
+        enabled=request.enabled,
+        actor_id=int(current_user["user_id"]),
     )
     if not result["success"]:
         code = 404 if "not found" in result["message"].lower() else 400

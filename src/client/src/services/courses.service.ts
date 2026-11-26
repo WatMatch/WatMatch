@@ -71,6 +71,7 @@ export interface Course {
     effective_marketplace_phase?: MarketplacePhase;
     marketplace_phase_context?: MarketplacePhaseContext;
     can_set_course_phase_override?: boolean;
+    instructor_phase_control?: boolean;
     requires_project_support?: boolean;
     active_instructor_count?: number;
     default_pipeline_course_id?: number | null;
@@ -228,6 +229,8 @@ export async function updateCourse(
         routing_kind?: "standard" | "interdisciplinary";
         marketplace_phase_override?: MarketplacePhase | null;
         marketplace_phase_override_reason?: string | null;
+        instructor_phase_control?: boolean;
+        expected_phase_override_updated_at?: string | null;
         requires_project_support?: boolean;
         reason?: string | null;
     }
@@ -244,6 +247,47 @@ export async function updateCourse(
 
     const result = await response.json();
     return result.data as Course;
+}
+
+export async function advanceCoursePhase(
+    courseId: number,
+    expectedPhase: MarketplacePhase
+): Promise<MarketplacePhaseContext> {
+    const response = await apiFetch(
+        buildApiUrl(`/api/v1/courses/${courseId}/phase/advance`),
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ expected_phase: expectedPhase }),
+        }
+    );
+
+    if (!response.ok) {
+        throw new Error(await readApiError(response, "Failed to advance course phase"));
+    }
+
+    const result = await response.json();
+    return result.data as MarketplacePhaseContext;
+}
+
+export async function setInstructorPhaseControl(
+    courseId: number,
+    enabled: boolean
+): Promise<void> {
+    const response = await apiFetch(
+        buildApiUrl(`/api/v1/courses/${courseId}/instructor-phase-control`),
+        {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled }),
+        }
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            await readApiError(response, "Failed to update instructor phase control")
+        );
+    }
 }
 
 export async function fetchCourseOfferings(params?: {

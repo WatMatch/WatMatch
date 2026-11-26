@@ -1,0 +1,45 @@
+[Unit]
+Description=WatMatch read-only private authentication preview API
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/srv/watmatch/current/src/backend/main.py
+ConditionPathExists=/srv/watmatch/current/src/backend/.venv/bin/python
+ConditionPathExists=/etc/watmatch/backend.env
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=watmatch-api
+Group=watmatch-api
+WorkingDirectory=/srv/watmatch/current/src/backend
+EnvironmentFile=-/etc/watmatch/backend-network.env
+EnvironmentFile=-/etc/watmatch/backend.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+UnsetEnvironment=ALL_PROXY all_proxy JWT_SECRET_KEY JWT_REFRESH_SECRET_KEY EMAIL_USER EMAIL_PASSWORD
+ExecCondition=/usr/bin/test -x /srv/watmatch/current/src/backend/.venv/bin/python
+ExecCondition=/bin/sh -c 'test -n "$$SUPABASE_URL" && test -n "$$SUPABASE_SERVICE_ROLE_KEY" && test -n "$$CLERK_ISSUER" && test -n "$$CLERK_SECRET_KEY" && test -n "$$CLERK_AUTHORIZED_PARTIES" && test "$$WATMATCH_READ_ONLY" = true && test "$$WATMATCH_REQUIRE_SYNC_CLOCK" = true'
+ExecStart=/usr/bin/env /srv/watmatch/current/src/backend/.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips 127.0.0.1 --no-access-log
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ProtectProc=invisible
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=watmatch-backend
+
+[Install]
+WantedBy=multi-user.target

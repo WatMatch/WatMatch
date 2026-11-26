@@ -1,4 +1,7 @@
 from .auth_dl import AuthDataLogic
+from .roles import assigned_roles, resolve_active_role, SWITCHABLE_ROLES
+from fastapi import HTTPException
+from src.workflow.rpc_utils import call_json_rpc
 from .jwt_utils import (
     create_access_token,
     create_refresh_token,
@@ -16,8 +19,11 @@ class AuthBusinessLogic:
     def __init__(self):
         self.auth_data = AuthDataLogic()
 
-    def _enrich_course(self, user: Dict[str, Any]) -> Dict[str, Any]:
+    def _enrich_course(self, user: Dict[str, Any], selected_role: str | None = None) -> Dict[str, Any]:
         user_response = dict(user)
+        roles = assigned_roles(user["user_id"])
+        active_role = resolve_active_role(user, roles, selected_role)
+        user_response.update(assigned_roles=roles, default_role=user["role"], role=active_role, active_role=active_role)
         course_fk = user_response.get("course_fk")
         user_response["course"] = None
         user_response["course_active"] = None
@@ -80,11 +86,13 @@ class AuthBusinessLogic:
                     "data": None
                 }
 
+            active_role = resolve_active_role(user, assigned_roles(user["user_id"]))
             # Create tokens
             token_data = {
                 "user_id": user["user_id"],
                 "email": user["email"],
-                "role": user["role"],
+                "role": active_role,
+                "active_role": active_role,
                 "course_fk": user.get("course_fk"),
                 "home_department_fk": user.get("home_department_fk"),
             }
@@ -157,11 +165,13 @@ class AuthBusinessLogic:
                     "data": None
                 }
 
+            active_role = resolve_active_role(user, assigned_roles(user["user_id"]), payload.get("active_role"))
             # Create new tokens
             token_data = {
                 "user_id": user["user_id"],
                 "email": user["email"],
-                "role": user["role"],
+                "role": active_role,
+                "active_role": active_role,
                 "course_fk": user.get("course_fk"),
                 "home_department_fk": user.get("home_department_fk"),
             }
@@ -181,7 +191,8 @@ class AuthBusinessLogic:
                 "data": {
                     "access_token": new_access_token,
                     "refresh_token": new_refresh_token,
-                    "token_type": "bearer"
+                    "token_type": "bearer",
+                    "user": self._enrich_course({k: v for k, v in user.items() if k != "refresh_token"}, active_role)
                 }
             }
 
@@ -191,6 +202,29 @@ class AuthBusinessLogic:
                 "message": f"Token refresh error: {str(e)}",
                 "data": None
             }
+
+    def switch_role(self, user_id: int, from_role: str, target_role: str) -> Dict[str, Any]:
+        user = self.auth_data.get_user_by_id(user_id)
+        if not user or user.get("active") is not True:
+            raise HTTPException(status_code=403, detail="User account is inactive")
+        roles = assigned_roles(user_id)
+        if target_role not in SWITCHABLE_ROLES or from_role not in SWITCHABLE_ROLES or target_role not in roles:
+            raise HTTPException(status_code=403, detail="This role is not assigned to your account.")
+        active_role = resolve_active_role(user, roles, target_role)
+        # The RPC rechecks membership under a user-row lock and records the actor.
+        result = call_json_rpc("watmatch_record_role_switch", {
+            "p_user_id": user_id, "p_from_role": from_role, "p_to_role": target_role,
+        })
+        if not result.get("success"):
+            raise HTTPException(status_code=403, detail=result.get("message", "Role switch denied."))
+        token_data = {"user_id": user_id, "email": user["email"], "role": active_role, "active_role": active_role}
+        access_token = create_access_token(token_data)
+        refresh_token = create_refresh_token(token_data)
+        self.auth_data.update_refresh_token(user_id, hashlib.sha256(refresh_token.encode()).hexdigest())
+        return {"success": True, "data": {
+            "access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer",
+            "user": self._enrich_course({k: v for k, v in user.items() if k != "refresh_token"}, active_role),
+        }}
 
     def logout(self, refresh_token: str) -> Dict[str, Any]:
         """Logout user by invalidating refresh token"""
