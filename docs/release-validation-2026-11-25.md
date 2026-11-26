@@ -1,5 +1,46 @@
 # Release candidate validation — 25 November 2026
 
+## Ubuntu verification — 26 November 2026
+
+The Waterloo VM passed the candidate checks at source `0b0f096d361ddc680dd1a839ae241c31fb66c82e`.
+Commit `74838fd` changes only the Vercel deployment guard and deployment guide;
+its application, dependencies and tests are identical. Automatic Vercel Git
+deployments are held for `main` and `mid2-review-*` during this rollout.
+
+The VM used Node 22.22.1, npm 9.2.0 and Python 3.13.18. All 45 Python versions
+matched the constraints. A new private `npm ci --ignore-scripts --include=dev
+--include=optional --no-audit --no-fund` installation matched all 408 lock entries.
+The documented ECE HTTPS proxy supplied package downloads.
+
+The commands below passed using the directories in the original results table:
+
+- Backend: `python -I -B -m unittest discover -s tests` (130),
+  `python -I -B tests/runtime_dependency_check.py`, and `python -m pip check`.
+- Deployment: `python -I -B -m unittest discover -s deploy/tests -v` (14),
+  plus `systemd-analyze verify` on both application service templates.
+- Frontend: `npm test` (30), `npm run lint`,
+  `node node_modules/typescript/bin/tsc --noEmit --incremental false`,
+  and `npm run build` (Next.js 15.5.29).
+- A temporary production Next server returned 200 for `/`, `/login`, and a
+  referenced JavaScript asset. It was stopped after the checks.
+
+All 315 source-file hashes remained unchanged after testing. The source, Linux
+dependencies and build remain in private staging. The build used no Clerk key,
+read-only preview mode and milestone feedback disabled. Rebuild with the selected
+public Clerk key and final pilot settings before activation. This is a build and
+HTTP check, not a live identity or student browser workflow. Database trials below
+ran locally on disposable PostgreSQL; no PostgreSQL server was installed on the VM.
+
+The existing October preview was not replaced. Its health returned 200; readiness
+returned 503 with `clock_synchronized=false`, `database=unavailable` and
+`read_only=true`. The Supabase hostname failed DNS resolution from both the VM and
+Mac. Through the ECE proxy, GitHub HTTPS succeeded; Supabase failed at CONNECT 503
+before TLS or database authentication. The project owner must check project status
+and its active endpoint. A paused project is possible but not confirmed.
+No shared data, service configuration or public deployment changed.
+
+## Original local validation
+
 The integrated candidate includes PRs #6, #7, #9, #10, #11, #12 and #13,
 the incremental invite-revocation repair, deployment checks and pilot instructions.
 Application code was tested at `cd80af7543668818688278d32d5419c873f070fa`.
